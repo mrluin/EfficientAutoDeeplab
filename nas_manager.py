@@ -1,0 +1,616 @@
+import math
+import torch
+import os
+import time
+import logging
+import json
+
+from run_manager import *
+from utils.common import set_manual_seed
+from utils.common import AverageMeter
+from utils.common import get_monitor_metric
+from utils.metrics import Evaluator
+from modules.mixed_op import *
+from utils.common import count_parameters
+
+'''
+# ArchSearchConfig: architecture parameter init and optimizer
+# GradientArchSearchConfig: architecture parameter update related information, update scheduler
+# ArchSearchRunManager: perform network training and architecture parameter training.
+'''
+
+class ArchSearchConfig:
+    def __init__(self,
+                 arch_init_type, arch_init_ratio, arch_optim_type,
+                 arch_lr, arch_optim_params, arch_weight_decay,
+                 target_hardware, ref_value):
+
+        self.arch_init_type = arch_init_type
+        self.arch_init_ratio = arch_init_ratio
+        self.arch_optim_type = arch_optim_type
+        self.arch_lr = arch_lr
+        self.arch_optim_params = arch_optim_params
+        self.arch_weight_decay = arch_weight_decay
+
+        # TODO: related computational constraints
+        self.target_hardware = target_hardware
+        self.ref_value = ref_value
+
+    @property
+    def config(self):
+        config = {
+            'type' : type(self),
+        }
+        for key in self.__dict__:
+            if not key.startswith('_'):
+                config[key] = self.__dict__[key]
+        return config
+
+    def get_update_schedule(self, iter_per_epoch):
+        raise NotImplementedError
+
+    def build_optimizer(self, params):
+        # build arch_parameter optimizer
+        # params: arch_parameters
+        if self.arch_optim_type == 'adam':
+            return torch.optim.Adam(
+                params, self.arch_lr, weight_decay=self.arch_weight_decay, **self.arch_optim_params
+            )
+        else:
+            raise ValueError('do not support otherwise torch.optim.Adam')
+
+class GradientArchSearchConfig(ArchSearchConfig):
+    def __init__(self,
+                 arch_init_type, arch_init_ratio, arch_optim_type,
+                 arch_lr, arch_optim_params, arch_weight_decay,
+                 target_hardware, ref_value,
+                 grad_update_arch_param_every, grad_update_steps, grad_binary_mode, grad_data_batch,
+                 grad_reg_loss_type, grad_reg_loss_params, **kwargs):
+        super(GradientArchSearchConfig, self).__init__(
+            arch_init_type, arch_init_ratio, arch_optim_type,
+            arch_lr, arch_optim_params, arch_weight_decay,
+            target_hardware, ref_value,
+        )
+
+        self.grad_update_arch_param_every = grad_update_arch_param_every # how often updates architecture parameter, per iteration
+        self.grad_update_steps = grad_update_steps # how many steps updates architecture parameter within an update process
+        self.grad_binary_mode = grad_binary_mode # full full_v2 two
+        self.grad_data_batch = grad_data_batch
+
+        self.grad_reg_loss_type = grad_reg_loss_type
+        self.grad_reg_loss_params = grad_reg_loss_params
+
+    def get_update_schedule(self, iter_per_epoch):
+        schedule = {}
+        for i in range(iter_per_epoch):
+            if (i+1) % self.grad_update_arch_param_every == 0:
+                schedule[i] = self.grad_update_steps # iteration i update arch_param self.grad_update_steps times.
+        return schedule
+
+    def add_regularization_loss(self, ce_loss, expected_value=None):
+        # TODO: need confirm, expected_value related to latency costraint
+        # do not use expected_value, latency constraint
+        if expected_value is None:
+            return ce_loss
+
+        if self.grad_reg_loss_type == 'mul#log ':
+            alpha = self.grad_reg_loss_params.get('alpha', 1)
+            beta = self.grad_reg_loss_params.get('beta', 0.6)
+            reg_loss = (torch.log(expected_value) / math.log(self.ref_value)) ** beta
+            return alpha * ce_loss * reg_loss
+        elif self.grad_reg_loss_type == 'add#linear':
+            reg_lambda = self.grad_reg_loss_params.get('lambda', 2e-1)
+            reg_loss = reg_lambda * (expected_value - self.ref_value) / self.ref_value
+            return ce_loss + reg_loss
+        elif self.grad_reg_loss_type is None:
+            return ce_loss
+        else:
+            raise ValueError('do not support {}'.format(self.grad_reg_loss_type))
+
+class ArchSearchRunManager:
+    def __init__(self,
+                 path, super_net,
+                 run_config: RunConfig,
+                 arch_search_config: ArchSearchConfig):
+
+        self.run_manager = RunManager(path, super_net, run_config, out_log=True, measure_latency=None)
+        self.arch_search_config = arch_search_config
+
+        # init architecture parameters
+        # TODO: model init parameters
+        self.net.init_arch_params(
+            self.arch_search_config.arch_init_type,
+            self.arch_search_config.arch_init_ratio
+        )
+
+        # build architecture optimizer
+        self.arch_optimizer = self.arch_search_config.build_optimizer(self.net.architecture_parameters())
+        #self.arch_optimizer = self.arch_optimizer.to(self.run_manager.device)
+
+        self.warmup = True # should warmup or not
+        self.warmup_epoch = 0 # current warmup epoch
+
+    @property
+    def net(self):
+        #return self.run_manager.net.module
+        return self.run_manager.net
+    '''# use combination method in run_manager 
+    def write_log(self, log_str, prefix, should_print=True):
+        # related to arch_search log, excluding train valid and test statistics
+        log_file = os.path.join(self.run_manager.log_path, prefix+'.txt')
+        with open(log_file, 'a') as fout:
+            fout.write(log_str + '\n')
+            fout.flush()
+        if should_print:
+            logging.info(log_str)
+            '''
+    def load_model(self, ckptfile_path=None):
+
+        assert ckptfile_path is not None and os.path.exists(ckptfile_path), \
+            'ckptfile can not be found'
+        try:
+            '''
+            if ckpt_filename is None or not os.path.exists(ckpt_filename):
+                # TODO: this case has issue
+                ckpt_filename = '{}/checkpoint.pth.tar'.format(self.save_path)
+                '''
+            if self.run_manager.out_log:
+                logging.info('Loading Checkpoint {}'.format(ckptfile_path))
+
+            if torch.cuda.is_available():
+                checkpoint = torch.load(ckptfile_path)
+            else:
+                checkpoint = torch.load(ckptfile_path, map_location='cpu')
+
+            model_dict = self.net.state_dict()
+            model_dict.update(checkpoint['state_dict'])
+            self.net.load_state_dict(model_dict)
+
+            # TODO:  why set new manual seed
+            new_manual_seed = int(time.time())
+            set_manual_seed(new_manual_seed)
+
+            # other elements
+            if 'epoch' in checkpoint:
+                self.start_epoch = checkpoint['epoch'] + 1
+            if 'best_{}'.format(self.run_manager.monitor_metric) in checkpoint:
+                self.best_monitor = checkpoint['best_{}'.format(self.run_manager.monitor_metric)]
+            # optimizer for only training, weight_optimizer and arch_optimizer for train_search phrase
+            if 'optimizer' in checkpoint:
+                self.run_manager.optimizer.load_state_dict(checkpoint['optimizer'])
+            if 'weight_optimizer' in checkpoint:
+                self.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
+            if 'arch_optimizer' in checkpoint:
+                self.arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
+            if 'warmup' in checkpoint:
+                self.warmup = checkpoint['warmup']
+            if self.warmup and 'warmup_epoch' in checkpoint:
+                self.warmup_epoch = checkpoint['warmup_epoch'] + 1
+            if self.run_manager.out_log:
+                logging.info('Loaded Checkpoint {}'.format(ckptfile_path))
+        except Exception:
+            if self.run_manager.out_log:
+                logging.info('Fail to load Checkpoint {}'.format(ckptfile_path))
+
+    ''' training related methods '''
+    def validate(self):
+        # for validation phrase, not train search phrase, only performing validation
+        # valid_loader batch_size = test_batch_size
+        # have already equals to test_batch_size in DataProvider
+        self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.run_manager.run_config.test_batch_size
+        self.run_manager.run_config.valid_loader.batch_sampler.drop_last=False
+
+        # set chosen op active
+        self.net.set_chosen_op_active()
+        # remove unused modules off
+        self.net.unused_modules_off()
+
+        # TODO: valid on validation set (from training set) under train mode
+        # only have effect on operation related to train mode
+        # like bn or dropout
+        loss, acc, miou, fscore = self.run_manager.validate(is_test=False, net=self.net, use_train_mode=True)
+        # flops
+        flops = self.run_manager.net_flops()
+
+        # target_hardware is None by default
+        if self.arch_search_config.target_hardware in ['flops', None]:
+            latency = 0
+        else:
+            raise NotImplementedError
+        self.net.unused_modules_back()
+        return loss, acc, miou, fscore, flops, latency
+
+
+    def warm_up(self, warmup_epochs=25):
+        lr_max = 0.05
+        data_loader = self.run_manager.run_config.train_loader
+        iter_per_epoch = len(data_loader)
+        total_iteration = warmup_epochs * iter_per_epoch
+
+        print('warmup')
+        # check params device
+        for name, param in self.net.named_parameters():
+            device = param.device
+            if device == torch.device('cpu'):
+                print('ERROR in', name, device)
+
+        def hook(module, grad_input, grad_output):
+
+            for i in range(len(grad_input)):
+                if grad_input[i] is not None:
+                    print(grad_input[i].device)
+                else:
+                    #print('input', module.__name__)
+                    print(module)
+
+            for j in range(len(grad_output)):
+                if grad_output[j] is not None:
+                    print(grad_output[j].device)
+                else:
+                    #print('output', module.__name__)
+                    print(module)
+
+        for module in self.net.modules():
+            module.register_backward_hook(hook)
+
+        loss_func = nn.CrossEntropyLoss().to(self.run_manager.device)
+
+        for epoch in range(self.warmup_epoch, warmup_epochs):
+            logging.info('\n', '-'*30, 'Warmup Epoch: {}'.format(epoch+1), '-'*30, '\n')
+            batch_time = AverageMeter()
+            data_time = AverageMeter()
+            losses = AverageMeter()
+            accs = AverageMeter()
+            mious = AverageMeter()
+            fscores = AverageMeter()
+
+            #self.run_manager.net.train()
+            self.net.train()
+            print('warm up epoch {}'.format(epoch))
+            end = time.time()
+            for i, (datas, targets) in enumerate(data_loader):
+                if torch.cuda.is_available():
+                    datas = datas.to(self.run_manager.device, non_blocking=True)
+                    targets = targets.to(self.run_manager.device, non_blocking=True)
+                else:
+                    raise ValueError('do not support cpu version')
+                data_time.update(time.time()-end)
+
+                # adjust warmup_lr
+                warmup_lr = self.run_manager.run_config.adjust_learning_rate(
+                    self.run_manager.optimizer, epoch, i, iter_per_epoch, lr_max, warmup_lr=True
+                )
+                #current_iteration = epoch * iter_per_epoch + i
+                #warmup_lr = 0.5 * lr_max * (1 + math.cos(math.pi * current_iteration / total_iteration))
+                #for param_group in self.run_manager.optimizer.param_groups:
+                #    param_group['lr'] = warmup_lr
+
+                # output
+
+                self.net.reset_binary_gates()
+                self.net.unused_modules_off()
+
+                #logits = self.run_manager.net(datas)
+                logits = self.net(datas)
+                '''
+                if self.run_manager.run_config.label_smoothing > 0.:
+                    raise NotImplementedError
+                else:
+                    loss = self.run_manager.criterion(logits, targets)
+                    '''
+
+                print(logits.device, type(logits), logits.dtype)
+                print(targets.device, type(targets), targets.dtype)
+
+                loss = loss_func(logits, targets)
+
+                self.net.zero_grad()
+
+                for name, param in self.net.named_parameters():
+                    device = param.device
+                    if device == torch.device('cpu'):
+                        print('ERROR in', name, device)
+
+                #print(loss)
+
+
+                loss.backward()
+
+
+                self.run_manager.optimizer.step()
+                self.net.unused_modules_back()
+
+                # measure metrics and update
+                evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+                evaluator.add_batch(targets, logits)
+                acc = evaluator.Pixel_Accuracy()
+                miou = evaluator.Mean_Intersection_over_Union()
+                fscore =  evaluator.Fx_Score()
+
+                losses.update(loss.data, datas.size(0))
+                accs.update(acc, datas.size(0))
+                mious.update(miou, datas.size(0))
+                fscores.update(fscore, datas.size(0))
+
+                # gradient and update parameters
+                # self.run_manager.optimizer.zero_grad()
+                # TODO: here should zero weight_param, arch_param, and binary_param
+                # self.run_manager.net.zero_grad()
+
+                batch_time.update(time.time()-end)
+                end = time.time()
+
+                if i % self.run_manager.run_config.print_freq == 0 or i + 1 == iter_per_epoch:
+                    batch_log = 'Warmup Train\t[{0}][{1}/{2}]\tlr\t{lr:.5f}\n' \
+                                'Time\t{batch_time.val:.3f}\t({batch_time.avg:.3f})\n' \
+                                'Data\t{data_time.val:.3f}\t({data_time.avg:.3f})\n' \
+                                'Loss\t{losses.val:6.4f}\t({losses.avg:6.4f})\n' \
+                                'Acc\t{accs.val:6.4f}\t({accs.avg:6.4f})\n' \
+                                'mIoU\t{mious.val:6.4f}\t({mious.avg:6.4f})\n' \
+                                'F\t{fscores.val:6.4f}\t({fscores.avg:6.4f})\n'.format(
+                        epoch+1, i, iter_per_epoch, lr=warmup_lr, batch_time=batch_time, data_time=data_time,
+                        losses=losses, accs=accs, mious=mious, fscores=fscores
+                    )
+                    # TODO: do not use self.write_log
+                    self.run_manager.write_log(batch_log, 'train')
+            # at the end of each epoch, performing valid
+            valid_loss, valid_acc, valid_miou, valid_fscore, flops, latency = self.validate()
+            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:.1f}M'\
+                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops/1e6)
+            valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
+
+            # target_hardware is None by default
+            if self.arch_search_config.target_hardware not in [None, 'flops']:
+                raise NotImplementedError
+
+            self.run_manager.write_log(valid_log, 'valid')
+            # continue warmup phrase
+            self.warmup = epoch + 1 < warmup_epochs
+
+            state_dict = self.net.state_dict()
+            # TODO: why
+            # rm architecture parameters & binary gates
+            for key in list(state_dict.keys()):
+                if 'AP_path_alpha' in key or 'AP_path_wb' in key:
+                    state_dict.pop(key)
+            checkpoint = {
+                'state_dict': state_dict,
+                'warmup': self.warmup
+            }
+            if self.warmup:
+                checkpoint['warmup_epoch'] = epoch
+            if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
+                self.run_manager.save_model(epoch, checkpoint, is_best=False,
+                                            checkpoint_file_name='checkpoint-warmup.pth.tar')
+
+    def train(self, fix_net_weights=False):
+        data_loader = self.run_manager.run_config.train_loader
+        iter_per_epoch = len(data_loader)
+        if fix_net_weights:
+            data_loader = [(0, 0)] * iter_per_epoch
+
+        arch_param_num = len(list(self.net.architecture_parameters()))
+        binary_gates_num = len(list(self.net.binary_gates()))
+        weight_param_num = len(list(self.net.weight_parameters()))
+
+        logging.info(
+            '#arch_params: {}\t #binary_gates: {}\t # weight_params: {}'.format(
+                arch_param_num, binary_gates_num, weight_param_num))
+
+        update_schedule = self.arch_search_config.get_update_schedule(iter_per_epoch)
+
+        for epoch in range(self.run_manager.start_epoch, self.run_manager.run_config.total_epochs):
+            logging.info('\n', '-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30, '\n')
+
+            batch_time = AverageMeter()
+            data_time = AverageMeter()
+            losses = AverageMeter()
+            accs = AverageMeter()
+            mious = AverageMeter()
+            fscores = AverageMeter()
+
+            #self.run_manager.net.train()
+            self.net.train()
+
+            end = time.time()
+            for i, (datas, targets) in enumerate(data_loader):
+                #lr
+                lr = self.run_manager.run_config.adjust_learning_rate(
+                    self.run_manager.optimizer, epoch, i, iter_per_epoch
+                )
+                # TODO: network entropy
+
+                # train network weight parameter if not fix_net_weights
+                if not fix_net_weights:
+                    if torch.cuda.is_available():
+                        datas = datas.to(self.run_manager.device, non_blocking=True)
+                        targets = targets.to(self.run_manager.device, non_blocking=True)
+                    else:
+                        raise ValueError('do not support cpu version')
+
+                    data_time.update(time.time() - end)
+
+                    # compute output
+                    self.net.reset_binary_gates()
+                    self.net.unused_modules_off()
+                    #logits = self.run_manager.net(datas)
+                    logits = self.net(datas)
+                    # loss
+                    if self.run_manager.run_config.label_smoothing > 0.:
+                        raise NotImplementedError
+                    else:
+                        loss = self.run_manager.criterion(logits, targets)
+                    # metrics and update
+                    evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+                    evaluator.add_batch(targets, logits)
+                    acc = evaluator.Pixel_Accuracy()
+                    miou = evaluator.Mean_Intersection_over_Union()
+                    fscore = evaluator.Fx_Score()
+                    losses.update(loss.data.item(), datas.size(0))
+                    accs.update(acc.item(), datas.size(0))
+                    mious.update(miou.item(), datas.size(0))
+                    fscores.update(fscore.item(), datas.size(0))
+
+                    # compute gradient and do SGD step
+                    # zero out, network weight parameters, binary_gates, and arch_param
+                    #self.run_manager.net.zero_grad()
+                    self.net.zero_grad()
+                    loss.backward()
+                    # here only update network weight parameters
+                    self.run_manager.optimizer.step()
+                    self.net.unused_modules_back()
+
+                # TODO: skip arch_param update in the first epoch
+                if epoch > 0:
+                    for j in range(update_schedule.get(i, 0)):
+                        start_time = time.time()
+                        if isinstance(self.arch_search_config, GradientArchSearchConfig):
+                            # target_hardware is None, exp_value is None by default
+                            arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
+                            used_time = time.time() - start_time
+                            # current architecture information
+                            # performance and flops
+                            log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\tLoss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n'\
+                                .format(epoch+1, i, used_time, arch_loss, arch_acc, arch_miou, arch_fscore)
+                            self.run_manager.write_log(log_str, prefix='gradient_search', should_print=True)
+                        else:
+                            raise ValueError('do not support version {}'.format(type(self.arch_search_config)))
+                batch_time.update(time.time() - end)
+                end = time.time()
+                # training log per print_freq
+                if i % self.run_manager.run_config.print_freq == 0 or i + 1 == iter_per_epoch:
+                    batch_log = 'Train\t[{0}][{1}/{2}]\tlr {lr:.5f}\n' \
+                                'Time\t{batch_time.val:.3f}\t({batch_time.avg:.3f})\n' \
+                                'Data\t{data_time.val:.3f}\t({data_time.avg:.3f})\n' \
+                                'Loss\t{losses.val:6.4f}\t({losses.avg:6.4f})\n' \
+                                'Acc\t{accs.val:6.4f}\t({accs.avg:6.4f})\n' \
+                                'MIoU\t{mious.val:6.4f}\t({mious.avg:6.4f})\n' \
+                                'F\t{fscores.val:6.4f}\t({fscores.avg:6.4f})\n'.format(
+                        epoch+1, i, iter_per_epoch, lr=lr, batch_time=batch_time, data_time=data_time,
+                        losses=losses, accs=accs, mious=mious, fscores=fscores
+                    )
+                    self.run_manager.write_log(batch_log, 'train', should_print=True)
+
+            # print current network architecture at the end of each epoch
+            self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30, prefix='arch', should_print=True)
+            for idx, block in enumerate(self.net.blocks):
+                self.run_manager.write_log('{}. {}'.format(idx, block.module_str), prefix='arch', should_print=True)
+            self.run_manager.write_log('-'*60, prefix='arch', should_print=True)
+
+            # validate at the end of each epoch
+            if (epoch+1) % self.run_manager.run_config.validation_freq == 0:
+                val_loss, val_acc, val_miou, val_fscore, flops, latency = self.validate()
+
+                val_monitor_metric = get_monitor_metric(self.run_manager.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
+                self.run_manager.best_monitor = max(self.run_manager.best_monitor, val_monitor_metric)
+
+                val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
+                          'Train\tLoss{loss.avg:.6f}\tAcc{accs.avg:6.4f}\tMIoU{mious.avg:6.4f}\tFscore{fscores.avg:6.4f}\n'.format(
+                    epoch+1, self.run_manager.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore,
+                    loss=losses, accs=accs, mious=mious, fscores=fscores
+                )
+                self.run_manager.write_log(val_log, 'valid', should_print=True)
+            # save model
+            if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
+                self.run_manager.save_model(epoch, {
+                    'warmup': False,
+                    'epoch': epoch,
+                    'weight_optimizer': self.run_manager.optimizer.state_dict(),
+                    'arch_optimizer': self.arch_optimizer.state_dict(),
+                    'state_dict': self.net.state_dict(),
+                }, is_best=False, checkpoint_file_name=None)
+
+        # TODO: convert to normal network according to architecture parameters
+        normal_net = self.net.cpu().convert_to_normal_net()
+        logging.info('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
+        os.makedirs(os.path.join(self.run_manager.path, 'learned_net'), exist_ok=True)
+        json.dump(normal_net.config, open(os.path.join(self.run_manager.path, 'learned_net/net.config'), 'w'), indent=4)
+        json.dump(
+            self.run_manager.run_config.config,
+            open(os.path.join(self.run_manager.path, 'learned_net/run.config'), 'w'),
+            indent=4
+        )
+        torch.save(
+            {'state_dict': normal_net.state_dict(),
+             'dataset': self.run_manager.run_config.dataset},
+            os.path.join(self.run_manager.path, 'learned_net/init')
+        )
+
+    def gradient_step(self):
+        assert isinstance(self.arch_search_config, GradientArchSearchConfig)
+
+        # if data_batch is None, equals to train_batch_size
+        if self.arch_search_config.grad_data_batch is None:
+            self.run_manager.run_config.valid_loader.batch_sampler.batch_size = \
+                self.run_manager.run_config.train_loader.batch_size
+        else:
+            self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.arch_search_config.grad_data_batch
+
+        self.run_manager.run_config.valid_loader.batch_sampler.drop_last = True
+
+        #self.run_manager.net.train()
+        self.net.train()
+
+        # TODO: MixedEdge !!!
+        MixedEdge.MODE = self.arch_search_config.grad_binary_mode
+        print(MixedEdge.MODE)
+        time1 = time.time()
+
+        # a batch of data from valid set (split from training)
+        datas, targets = self.run_manager.run_config.valid_next_batch
+        if torch.cuda.is_available():
+            datas = datas.to(self.run_manager.device, non_blocking=True)
+            targets = targets.to(self.run_manager.device, non_blocking=True)
+        else:
+            raise ValueError('do not support cpu version')
+        time2 = time.time()
+        self.net.binary_gates()
+        self.net.unused_modules_off()
+        #logits = self.run_manager.net(datas)
+        logits = self.net(datas)
+        time3 = time.time()
+        # loss
+        # TODO: why only simple ce_loss
+        loss = self.run_manager.criterion(logits, targets)
+        # metrics of batch of validation data
+        evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+        evaluator.add_batch(targets, logits)
+        acc = evaluator.Pixel_Accuracy()
+        miou = evaluator.Mean_Intersection_over_Union()
+        fscore = evaluator.Fx_Score()
+
+        # target_hardware is None by default
+        if self.arch_search_config.target_hardware is None:
+            expected_value = None
+        elif self.arch_search_config.target_hardware == 'mobile':
+            raise NotImplementedError
+        elif self.arch_search_config.target_hardware == 'flops':
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
+
+        # if target_hardware is None, return singel ce_loss
+        loss = self.arch_search_config.add_regularization_loss(loss, expected_value)
+
+        # self.run_manager.net.zero_grad()
+        # loss.backward() only binary gates have gradient
+        # set arch_parameter gradients according to the gradients of binary gates
+        self.net.zero_grad()
+        loss.backward()
+        self.net.set_arch_param_grad() # get old_alphas
+        self.arch_optimizer.step() # get new_alphas
+        # TODO: change MODE
+        if MixedEdge.MODE == 'two':
+            self.net.rescale_updated_arch_param() # rescale updated arch_params according to old_alphas and new_alphas
+        self.net.unused_modules_back()
+        MixedEdge.MODE = None
+        time4 = time.time()
+        self.run_manager.write_log(
+            '{:.4f}, {:.4f}, {:.4f}'.format(time2-time1, time3-time2, time4-time3),
+            prefix='gradient_search',
+            should_print=True,
+        )
+        # TODO: need modification
+        return loss.data.item(), acc.item(), miou.item(), fscore.item(), expected_value.item() if expected_value is not None else None
+
+
