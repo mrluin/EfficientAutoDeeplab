@@ -169,17 +169,19 @@ class Split_Cell(MyModule):
             for j in range(i+2):
                 stride = 1
                 if self.prev_prev_c is None and j == 0: # the first mixededge related to prev_prev_cell
-                    op = None
+                    conv_op = None
+                    shortcut = None
                 else:
                     # skip connection: Identity
                     # None: Zero
-                    op = MixedEdge(build_candidate_ops(
+                    conv_op = MixedEdge(build_candidate_ops(
                         self.conv_candidates,
                         in_channels=self.outc, out_channels=self.outc,
                         stride=stride, ops_order='act_weight_bn'
                     ))
-                self.ops.append(op)
-
+                    shortcut = Identity(self.outc, self.outc)
+                inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+                self.ops.append(inverted_residual_block)
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
 
     def forward(self, s0, s1):
@@ -204,7 +206,9 @@ class Split_Cell(MyModule):
         concat_feature = torch.cat([states[-self.block_multiplier:]], dim=1)
         return self.final_conv1x1(concat_feature)
 
+    def get_flops(self，prev_prev_c, prev_c, decode_type):
 
+    def module_str(self, prev_prev_c, type):
 
 
 

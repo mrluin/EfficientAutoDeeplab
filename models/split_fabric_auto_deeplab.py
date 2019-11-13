@@ -11,9 +11,9 @@ from genotype import PRIMITIVES, Genotype
 from modules.operations import *
 from run_manager import *
 from nas_manager import *
-from utils.common import save_inter_tensor
+from utils.common import save_inter_tensor, get_cell_decode_type, get_list_index_split
 from utils.common import get_next_scale, get_list_index, get_prev_c
-
+from collections import OrderedDict
 
 class SplitFabricAutoDeepLab(MyNetwork):
     MODE = None
@@ -22,14 +22,16 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
         self._redundant_modules = None
         self._unused_modules = None
+        self.cells = nn.ModuleList()
 
         self.run_config = run_config
         self.arch_search_config = arch_search_config
         self.conv_candidates = conv_candidates
+
         self.nb_layers = self.run_config.nb_layers
         self.nb_classes = self.run_config.nb_classes
 
-        self.cells = nn.ModuleList()
+
         # network level parameter and binary_gates
         self.fabric_path_alpha = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
         self.fabric_path_wb = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
@@ -52,21 +54,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
         # TODO: architecture params init in nas_manager
 
         # three init stems
-        self.stem0 = nn.Sequential(
-            nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
-        self.stem1 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        self.stem2 = nn.Sequential(
-            nn.Conv2d(64, 128, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
+        self.stem0 = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(64)),
+            ('relu', nn.ReLU(inplace=True))
+        ]))
+        self.stem1 = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(64)),
+            ('relu', nn.ReLU(inplace=True))
+        ]))
+        self.stem2 = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(64, 128, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(128)),
+            ('relu', nn.ReLU(inplace=True))
+        ]))
 
         # all the cell added
 
@@ -161,6 +163,15 @@ class SplitFabricAutoDeepLab(MyNetwork):
         self.aspp16 = ASPP(scale16_outc, self.nb_classes, 6, self.run_config.nb_classes)
         self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3, self.run_config.nb_classes)
 
+        self.set_bn_param(momentum=self.run_config.bn_momentum, eps=self.run_config.bn_eps)
+
+    @property
+    def config(self):
+        raise ValueError('not needed')
+    @staticmethod
+    def build_from_config(config):
+        raise ValueError('not needed')
+
     @property
     def n_choices(self):
         return 3
@@ -174,7 +185,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
     @property
     def chosen_index(self):
         # confirmed
-        probs = self.probs_over_ops.data#.cpu().numpy()
+        probs = self.probs_over_paths.data#.cpu().numpy()
         index = torch.argmax(probs, dim=-1, keepdim=True)#np.argmax(probs, axis=-1) # shape as [self.nb_layers, scales]
         # shape as [12, 4, 1]
         return index, torch.gather(probs, -1, index)
@@ -251,6 +262,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     active_index[layer][scale][0] = sample_index
                     random_result.append([scale, sample_index])
                     random_dfs(layer + 1, random_result, last=get_next_scale(sample_index, scale))
+        # from layer 0, random_result is [], last = 0
         random_dfs(layer, random_result, last)
         print('random_path_result:', random_result)
         return active_index, random_result
@@ -474,13 +486,6 @@ class SplitFabricAutoDeepLab(MyNetwork):
             for s in range(4):
                 for index in involved_index[l][s]:
                     self.fabric_path_alpha.data[l][s][index] -= offset[l][s][0]
-
-    @property
-    def config(self):
-        raise ValueError('not needed')
-    @staticmethod
-    def build_from_config(config):
-        raise ValueError('not needed')
 
     def forward(self, x):
 
@@ -947,30 +952,75 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     def viterbi_search(self):
 
-        self.network_space = torch.zeros(self.nb_layers, 4, 3)
+        network_space = torch.zeros(self.nb_layers, 4, 3)
         for layer in range(self.nb_layers):
             if layer == 0:
-                self.network_space[layer][0][1:] = F.softmax(self.fabric_path_alpha.data[layer][0][1:], dim=-1) * (2/3)
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                        2 / 3)
             elif layer == 1:
-                self.network_space[layer][0][1:] = F.softmax(self.fabric_path_alpha.data[layer][0][1:], dim=-1) * (2/3)
-                self.network_space[layer][1] = F.softmax(self.fabric_path_alpha.data[layer][1], dim=-1)
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                        2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
             elif layer == 2:
-                self.network_space[layer][0][1:] = F.softmax(self.fabric_path_alpha.data[layer][0][1:], dim=-1) * (2/3)
-                self.network_space[layer][1] = F.softmax(self.fabric_path_alpha.data[layer][1], dim=-1)
-                self.network_space[layer][2] = F.softmax(self.fabric_path_alpha.data[layer][2], dim=-1)
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                        2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
+                network_space[layer][2] = F.softmax(self.arch_network_parameters.data[layer][2], dim=-1)
             else:
-                self.network_space[layer][0][1:] = F.softmax(self.fabric_path_alpha.data[layer][0][1:], dim=-1) * (2/3)
-                self.network_space[layer][1] = F.softmax(self.fabric_path_alpha.data[layer][1], dim=-1)
-                self.network_space[layer][2] = F.softmax(self.fabric_path_alpha.data[layer][2], dim=-1)
-                self.network_space[layer][3][:2] = F.softmax(self.fabric_path_alpha.data[layer][3][:2], dim=-1) * (2/3)
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                        2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
+                network_space[layer][2] = F.softmax(self.arch_network_parameters.data[layer][2], dim=-1)
+                network_space[layer][3][:2] = F.softmax(self.arch_network_parameters.data[layer][3][:2], dim=-1) * (
+                        2 / 3)
+
+        prob_space = np.zeros((network_space.shape[:2]))
+        path_space = np.zeros((network_space.shape[:2])).astype('int8')
+
+        # prob_space [layer, sample] means the layer-the choice go to sample-th scale
+        # network space 0 ↗, 1 →, 2 ↘  , rate means choice
+        # path_space    1    0   -1      1-rate means path
+        for layer in range(self.network_space.shape[0]):
+            if layer == 0:
+                prob_space[layer][0] = network_space[layer][0][1]  # 0-layer go to next 0-scale prob
+                prob_space[layer][1] = network_space[layer][0][2]  # 0-layer go to next 1-scale prob
+
+                path_space[layer][0] = 0
+                path_space[layer][1] = -1
+            else:
+                for sample in range(network_space.shape[1]):
+                    if sample > layer + 1:  # control valid sample in each layer
+                        continue
+                    local_prob = []
+                    for rate in range(network_space.shape[2]):
+                        if (sample == 0 and rate == 2) or (sample == 3 and rate == 0):
+                            # if the next scale is 0, does not come from rate 2: reduction
+                            # if the next scale is 3, does not come from rate 0: up
+                            continue
+                        else:
+                            # sample is target scale, sample+(1-rate) is current scale
+                            # prob_space[layer-1][sample+(1-rate)], the prob of last layer to current scale
+                            # rate = 0, current to target up, then current is target + 1 (i.e.) 1-rate = 1
+                            # rate = 1, current to target same, then current is the same as target 1-rate = 0
+                            # rate = 2, current to target reduce, then current is target - 1 (i.e.) 1-rate = -1
+                            local_prob.append(prob_space[layer - 1][sample + 1 - rate] *
+                                              network_space[layer][sample + 1 - rate][rate])
+                    prob_space[layer][sample] = np.max(local_prob, axis=0)
+                    rate = np.argmax(local_prob, axis=0)
+                    path = 1 - rate if sample != 3 else -rate
+                    path_space[layer][sample] = path
+        output_sample = np.argmax(prob_space[-1, :], axis=-1)
+        actual_path = np.zeros(12).astype('uint8')
+        actual_path[-1] = output_sample  # have known tha last scale
+        for i in range(1, self.nb_layers):  # get scale path according to path_space
+            actual_path[-i - 1] = actual_path[-i] + path_space[self.nb_layers - i, actual_path[-i]]
+
+        return actual_path, network_layer_to_space(actual_path)
 
     def genotype_decode(self):
         # proxy-cell does not need genotype parser any more
         # raise NotImplementedError
         raise NotImplementedError
-
-
-
     '''
     def initialize_alphas(self):
         # TODO: get rid of this method
@@ -991,16 +1041,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
             if 'fabric_path_alpha' in name:
                 yield param
 
-    def binary_gates(self):
+    def cell_binary_gates(self):
         # only binary gates
         for name, param in self.named_parameters():
             if 'AP_path_wb' in name:
                 yield  param
+    def network_binary_gates(self):
+        for name, param in self.named_parameters():
+            if 'fabric_path_wb' in name:
+                yield param
 
     def weight_parameters(self):
         # network weight parameters
         for name, param in self.named_parameters():
-            if 'AP_path_alpha' not in name and 'fabric_path_alpha' not in name and 'AP_path_wb' not in name:
+            if 'AP_path_alpha' not in name and 'fabric_path_alpha' not in name \
+                    and 'AP_path_wb' not in name and 'fabric_path_wb' not in name:
                 yield  param
 
     def architecture_parameters(self):
@@ -1095,10 +1150,57 @@ class SplitFabricAutoDeepLab(MyNetwork):
             self_m.inactive_index = copy.deepcopy(net_m.inactive_index)
 
     def expected_latency(self):
+        # related to final objective, hardware target
         raise NotImplementedError
 
     def expected_flops(self):
+        # related to final objective, hardware target
         raise NotImplementedError
+
+    def module_str(self):
+        # TODO: need reconfirm
+        best_result = self.decode_network()
+        # TODO: test viterbi algorithm
+        log_str = 'Network-Level-Best-Result:\n {}\n'.format(best_result)
+        stem0_module_str = 'Stem_s{}_{}x{} ConvBnReLU'.format(self.stem0.conv.stride[0],
+                                                             self.stem0.conv.kernel_size[0],
+                                                             self.stem0.conv.kernel_size[1])
+        stem1_module_str = 'Stem_s{}_{}x{} ConvBnReLU'.format(self.stem1.conv.stride[0],
+                                                             self.stem1.conv.kernel_size[0],
+                                                             self.stem1.conv.kernel_size[1])
+        stem2_module_str = 'Stem_s{}_{}x{} ConvBnReLU'.format(self.stem2.conv.stride[0],
+                                                             self.stem2.conv.kernel_size[0],
+                                                             self.stem2.conv.kernel_size[1])
+        log_str += '{}. {}\n'.format(0, stem0_module_str)
+        log_str += '{}. {}\n'.format(1, stem1_module_str)
+        log_str += '{}. {}\n'.format(2, stem2_module_str)
+
+        for layer in range(self.nb_layers):
+            prev_prev_c = False
+            if layer >= 1 and best_result[layer][1] == best_result[layer-1][0]:
+                prev_prev_c = True
+            current_scale = best_result[layer][0]
+            next_scale = best_result[layer][1]
+            # TODO: test get_list_index_split
+            index = get_list_index_split(layer, current_scale, next_scale)
+            type = get_cell_decode_type(current_scale, next_scale)
+            frag_cell_log = '(Layer {} Scale {} Index {})\n'\
+                                .format(layer + 1, next_scale, index) + self.cells[index].module_str(prev_prev_c, type)  # each proxy cell and its mixed operations
+            log_str += frag_cell_log
+        last_scale = best_result[-1][1]
+        if last_scale == 0:
+            log_str += 'Final:\t{}\n'.format(self.aspp4.module_str())
+        elif last_scale == 1:
+            log_str += 'Final:\t{}\n'.format(self.aspp8.module_str())
+        elif last_scale == 2:
+            log_str += 'Final:\t{}\n'.format(self.aspp16.module_str())
+        elif last_scale == 3:
+            log_str += 'Final:\t{}\n'.format(self.aspp32.module_str())
+
+        return log_str
+
+    def get_flops(self, x):
+
 
     def convert_to_normal_net(self):
         # network level architecture is obtained by decoder, cell level architecture is obtained by this.
