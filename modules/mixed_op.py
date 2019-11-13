@@ -1,7 +1,7 @@
 import numpy as np
 import torch.nn.functional as F
 
-
+from modules.my_modules import MyModule
 from torch.nn.parameter import Parameter
 from modules.operations import *
 from utils.common import delta_ij, detach_variable
@@ -163,7 +163,6 @@ class MixedEdge(MyModule):
             output = self.active_op(x)
         return output
 
-    @property
     def module_str(self):
         # return the chosen operation
         chosen_index, probs = self.chosen_index

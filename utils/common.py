@@ -6,6 +6,9 @@ import random
 import time
 import numpy as np
 
+
+
+
 def print_experiment_environment():
 
     print('\n','-'*30+'->\tworking with PyTorch version {}'.format(torch.__version__))
@@ -119,6 +122,14 @@ def count_conv_flop(layer, x):
 
     return delta_ops
 
+def count_normal_conv_flop(layer, x):
+    out_h = int(x.size()[2] / layer.stride[0])
+    out_w = int(x.size()[3] / layer.stride[1])
+    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size * layer.kernel_size * \
+                out_h * out_w / layer.groups
+    return delta_ops
+
+
 def count_parameters(model):
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total_params
@@ -165,3 +176,29 @@ def get_cell_decode_type(current_scale, next_scale):
         return 'reduction'
     elif current_scale == next_scale + 1:
         return 'up'
+
+
+def network_layer_to_space(net_arch, nb_layers):
+    assert len(net_arch) == nb_layers, 'invalid nb_layers'
+    network_space = np.zeors(nb_layers, 4, 3)
+
+    # record scale from 1 to 12
+    # i            from 0 to 11
+    # in layer i in which scale, what the choice is
+    prev = 0
+    for i, scale in enumerate(net_arch):
+        if scale > i + 1:
+            raise ValueError('invalid scale {} in layer {}'.format(scale, i+1))
+        if scale == prev:
+            rate = 1
+        elif scale == prev+1:
+            rate = 2
+        elif scale == prev-1:
+            rate = 0
+        else:
+            raise ValueError('invalid scale and prev_scale relation')
+
+        network_space[i][0][rate] = 1
+        prev = scale
+
+    return network_space

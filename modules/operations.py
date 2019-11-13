@@ -5,6 +5,7 @@ from modules.my_modules import *
 from collections import OrderedDict
 from utils.common import get_padding_size
 from utils.common import count_conv_flop
+from utils.common import count_normal_conv_flop
 
 def set_layer_from_config(layer_config):
 
@@ -445,24 +446,24 @@ class ASPP(MyModule):
 
         self.nb_classes = nb_classes
         self.dilation = dilation
-        self.conv1x1 = nn.Sequential(
-            nn.Conv2d(inc, inc, 1, bias=False),
-            nn.BatchNorm2d(inc)
-        )
+        self.conv1x1 = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(inc, inc, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(inc))
+        ]))
         padding3x3 = get_padding_size(3, dilation)
-        self.conv3x3 = nn.Sequential(
-            nn.Conv2d(inc, inc, 3, padding=padding3x3, dilation=dilation, bias=False),
-            nn.BatchNorm2d(inc)
-        )
+        self.conv3x3 = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(inc, inc, 3, padding=padding3x3, dilation=dilation, bias=False)),
+            ('bn', nn.BatchNorm2d(inc)),
+        ]))
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
-        self.gp_conv = nn.Sequential(
-            nn.Conv2d(inc, inc, 1, bias=False),
-            nn.BatchNorm2d(inc)
-        )
-        self.concat_conv = nn.Sequential(
-            nn.Conv2d(inc * 3, inc, 1, bias=False),
-            nn.BatchNorm2d(inc)
-        )
+        self.gp_conv = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(inc, inc, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(inc))
+        ]))
+        self.concat_conv = nn.Sequential(OrderedDict([
+            ('conv', nn.Conv2d(inc * 3, inc, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(inc))
+        ]))
         self.final_conv = nn.Conv2d(inc, outc, kernel_size=1, bias=False)
 
     def forward(self, input):
@@ -478,13 +479,13 @@ class ASPP(MyModule):
 
     def get_flops(self, x):
 
-        flop_conv1x1, conv1x1 = count_conv_flop(self.conv1x1,x), self.conv1x1(x)
-        flop_conv3x3, conv3x3 = count_conv_flop(self.conv3x3, x), self.conv3x3(x)
+        flop_conv1x1, conv1x1 = count_normal_conv_flop(self.conv1x1.conv,x), self.conv1x1(x)
+        flop_conv3x3, conv3x3 = count_normal_conv_flop(self.conv3x3.conv, x), self.conv3x3(x)
         convgp = F.interpolate(self.global_pooling(x), size=x.size()[2:], mode='bilinear', align_corners=True)
-        flop_convgp, convgp = count_conv_flop(self.gp_conv, convgp), self.gp_conv(convgp)
+        flop_convgp, convgp = count_normal_conv_flop(self.gp_conv.conv, convgp), self.gp_conv(convgp)
         cat_feature = torch.cat([conv1x1, conv3x3, convgp], dim=1)
-        flop_concat, output = count_conv_flop(self.concat_conv, cat_feature), self.concat_conv(cat_feature)
-        flop_final, output = count_conv_flop(self.final_conv, output), self.final_conv(output)
+        flop_concat, output = count_normal_conv_flop(self.concat_conv.conv, cat_feature), self.concat_conv(cat_feature)
+        flop_final, output = count_normal_conv_flop(self.final_conv, output), self.final_conv(output)
         return flop_conv1x1 + flop_conv3x3 + flop_convgp + flop_concat + flop_final, output
 
     def module_str(self):
@@ -592,7 +593,7 @@ class MobileInvertedResidualBlock(MyModule):
             res = skip_x + conv_x
         return res
 
-    @property
+
     def module_str(self):
         return '({}, {})'.format(
             self.mobile_inverted_conv.module_str,

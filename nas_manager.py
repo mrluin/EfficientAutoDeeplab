@@ -494,7 +494,7 @@ class ArchSearchRunManager:
             # print_save_arch_information
             if self.run_manager.run_config.print_save_arch_information:
                 # print current network architecture at the end of each epoch
-                self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30, prefix='arch', should_print=True)
+                self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30+'\n', prefix='arch', should_print=True)
                 log_str = self.net.module_str()
                 self.run_manager.write_log(log_str, prefix='arch', should_print=True)
                 self.run_manager.write_log('-' * 60, prefix='arch', should_print=True)

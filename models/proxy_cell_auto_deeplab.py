@@ -14,7 +14,8 @@ from utils.common import count_conv_flop
 from utils.common import get_prev_c
 from utils.common import get_cell_decode_type
 from utils.common import get_list_index
-
+from utils.common import count_normal_conv_flop
+from utils.common import network_layer_to_space
 from collections import OrderedDict
 
 class ProxyAutoDeepLab(MyNetwork):
@@ -437,9 +438,71 @@ class ProxyAutoDeepLab(MyNetwork):
         return best_result
 
     def viterbi_decode(self):
-        self.netwrk
 
+        network_space = torch.zeros(self.nb_layers, 4, 3)
+        for layer in range(self.nb_layers):
+            if layer == 0:
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                            2 / 3)
+            elif layer == 1:
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                            2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
+            elif layer == 2:
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                            2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
+                network_space[layer][2] = F.softmax(self.arch_network_parameters.data[layer][2], dim=-1)
+            else:
+                network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
+                            2 / 3)
+                network_space[layer][1] = F.softmax(self.arch_network_parameters.data[layer][1], dim=-1)
+                network_space[layer][2] = F.softmax(self.arch_network_parameters.data[layer][2], dim=-1)
+                network_space[layer][3][:2] = F.softmax(self.arch_network_parameters.data[layer][3][:2], dim=-1) * (
+                            2 / 3)
 
+        prob_space = np.zeros((network_space.shape[:2]))
+        path_space = np.zeros((network_space.shape[:2])).astype('int8')
+
+        # prob_space [layer, sample] means the layer-the choice go to sample-th scale
+        # network space 0 ↗, 1 →, 2 ↘  , rate means choice
+        # path_space    1    0   -1      1-rate means path
+        for layer in range(self.network_space.shape[0]):
+            if layer == 0:
+                prob_space[layer][0] = network_space[layer][0][1] # 0-layer go to next 0-scale prob
+                prob_space[layer][1] = network_space[layer][0][2] # 0-layer go to next 1-scale prob
+
+                path_space[layer][0] = 0
+                path_space[layer][1] = -1
+            else:
+                for sample in range(network_space.shape[1]):
+                    if sample > layer + 1: # control valid sample in each layer
+                        continue
+                    local_prob = []
+                    for rate in range(network_space.shape[2]):
+                        if (sample == 0 and rate == 2) or (sample == 3 and rate == 0):
+                            # if the next scale is 0, does not come from rate 2: reduction
+                            # if the next scale is 3, does not come from rate 0: up
+                            continue
+                        else:
+                            # sample is target scale, sample+(1-rate) is current scale
+                            # prob_space[layer-1][sample+(1-rate)], the prob of last layer to current scale
+                            # rate = 0, current to target up, then current is target + 1 (i.e.) 1-rate = 1
+                            # rate = 1, current to target same, then current is the same as target 1-rate = 0
+                            # rate = 2, current to target reduce, then current is target - 1 (i.e.) 1-rate = -1
+                            local_prob.append(prob_space[layer-1][sample+1-rate]*
+                                              network_space[layer][sample+1-rate][rate])
+                    prob_space[layer][sample] = np.max(local_prob, axis=0)
+                    rate = np.argmax(local_prob, axis=0)
+                    path = 1-rate if sample != 3 else -rate
+                    path_space[layer][sample] = path
+        output_sample = np.argmax(prob_space[-1, :], axis=-1)
+        actual_path = np.zeros(12).astype('uint8')
+        actual_path[-1] = output_sample # have known tha last scale
+        for i in range(1, self.nb_layers): # get scale path according to path_space
+            actual_path[-i-1] = actual_path[-i] + path_space[self.nb_layers - i, actual_path[-i]]
+
+        return actual_path,  network_layer_to_space(actual_path)
 
 
     def genotype(self):
@@ -587,26 +650,31 @@ class ProxyAutoDeepLab(MyNetwork):
 
     def module_str(self):
         best_result = self.decode_network()
-        log_str = 'Network-Level-Best-Result: {}\n'.format(best_result)
+        log_str = 'Network-Level-Best-Result:\n {}\n'.format(best_result)
 
-        stem0_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem0.conv.stride,
-                                                             self.stem0.conv.kernel_size,
-                                                             self.stem0.conv.kernel_size)
-        stem1_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem1.conv.stride,
-                                                             self.stem1.conv.kernel_size,
-                                                             self.stem1.conv.kernel_size)
-        stem2_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem2.conv.stride,
-                                                             self.stem2.conv.kernel_size,
-                                                             self.stem2.conv.kernel_size)
+        stem0_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem0.conv.stride[0],
+                                                             self.stem0.conv.kernel_size[0],
+                                                             self.stem0.conv.kernel_size[1])
+        stem1_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem1.conv.stride[0],
+                                                             self.stem1.conv.kernel_size[0],
+                                                             self.stem1.conv.kernel_size[1])
+        stem2_module_str = 'Stem_s{}_{}x{}ConvBnReLU'.format(self.stem2.conv.stride[0],
+                                                             self.stem2.conv.kernel_size[0],
+                                                             self.stem2.conv.kernel_size[1])
         log_str += '{}. {}\n'.format(0, stem0_module_str)
         log_str += '{}. {}\n'.format(1, stem1_module_str)
         log_str += '{}. {}\n'.format(2, stem2_module_str)
 
         for layer in range(self.nb_layers):
+            prev_prev_c = False
+            if layer >= 1 and best_result[layer][1] == best_result[layer-1][0]:
+                prev_prev_c = True
+            current_scale = best_result[layer][0]
             next_scale = best_result[layer][1]
             index = get_list_index(layer, next_scale)
-            frag_cell_log = '(Layer {} Scale {} Index {}).'.format(layer + 1, next_scale, index) + self.cells[
-                index].module_str()+'\n'  # each proxy cell and its mixed operations
+            type = get_cell_decode_type(current_scale, next_scale)
+            frag_cell_log = '(Layer {} Scale {} Index {})\n'\
+                                .format(layer + 1, next_scale, index) + self.cells[index].module_str(prev_prev_c, type)  # each proxy cell and its mixed operations
             log_str += frag_cell_log
 
         last_scale = best_result[-1][1]
@@ -627,7 +695,7 @@ class ProxyAutoDeepLab(MyNetwork):
         best_result = self.decode_network() # [(scale, next_scale)] * 12 network path level
         assert len(best_result) == self.run_config.nb_layers, 'Error in self.net.decode_network'
         flops = 0.
-        flop_stems = count_conv_flop(self.stem0.conv, x) + count_conv_flop(self.stem1.conv, x) + count_conv_flop(self.stem2.conv, x)
+        flop_stems = count_normal_conv_flop(self.stem0.conv, x) + count_normal_conv_flop(self.stem1.conv, x) + count_normal_conv_flop(self.stem2.conv, x)
         x = self.stem0(x)
         x = self.stem1(x)
         x = self.stem2(x)
