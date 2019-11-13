@@ -35,7 +35,7 @@ def obtain_train_search_args():
     parser.add_argument('--crop_size', type=int, default=512, help='size of cropped patches')
     # optimization
     parser.add_argument('--init_lr', type=float, default=0.025)
-    parser.add_argument('--lr_scheduler', type=str, default='cos', choices=['poly', 'step', 'cos'])
+    parser.add_argument('--lr_scheduler', type=str, default='cosine', choices=['poly', 'step', 'cosine'])
     # TODO lr_scheduler_param
     parser.add_argument('--optim_type', type=str, default='sgd', choices=['sgd', 'adam'])
     parser.add_argument('--momentum', type=float, default=0.9) #optim param1
@@ -46,6 +46,9 @@ def obtain_train_search_args():
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
     parser.add_argument('--print_freq', type=int, default=10)
+    parser.add_argument('--print_save_arch_information', default=False, action='store_true')
+    parser.add_argument('--save_normal_net_after_training', default=False, action='store_true')
+    parser.add_argument('--print_arch_param_step_freq', type=int, default=10)
     # loss function
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
     parser.add_argument('--loss', type=str, default='ce', choices=['ce'])

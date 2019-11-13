@@ -100,6 +100,8 @@ class AutoDeepLab(MyNetwork):
         self.aspp8 = ASPP(scale8_outc, self.nb_classes, 12, self.run_config.nb_classes)
         self.aspp16 = ASPP(scale16_outc, self.nb_classes, 6, self.run_config.nb_classes)
         self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3, self.run_config.nb_classes)
+
+        self.set_bn_param(momentum=self.run_config.bn_momentum, eps=self.run_config.bn_eps)
     @property
     def config(self):
         raise ValueError('not needed')
@@ -121,7 +123,7 @@ class AutoDeepLab(MyNetwork):
         save_inter_tensor(scale4, x)
 
         # TODO: cell weight is useless
-        norm_arch_network_alpha = torch.randn(self.nb_layers, 4, 3)#.to('cuda:{}'.format(self.run_config.gpu_ids))
+        norm_arch_network_alpha = torch.randn(self.nb_layers, 4, 3).to(x.device)
         # need arch_path_alpha rather than alpha_cell
         # norm_alpha_cell = F.softmax(self.alpha_cell, dim=1)
 

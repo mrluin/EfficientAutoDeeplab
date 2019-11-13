@@ -6,6 +6,8 @@ from genotype import PRIMITIVES
 
 from run_manager import *
 
+#__all__ = ['Cell', 'Split_Cell']
+
 class Cell(MyModule):
     def __init__(self,
                  run_config: RunConfig,
@@ -123,5 +125,86 @@ class Cell(MyModule):
 
         # final_concates have three results at most, for three paths, respectively.
         return final_concates
+
+class Split_Cell(MyModule):
+    def __init__(self,
+                 run_config: RunConfig,
+                 conv_candidates,
+                 scale, prev_c, prev_prev_c, types):
+        super(Split_Cell, self).__init__()
+        self.filter_multiplier = run_config.filter_multiplier
+        self.block_multiplier = run_config.block_multiplier
+        self.steps = run_config.steps
+        self.conv_candidates = conv_candidates
+
+        self.outc = int(self.filter_multiplier * self.block_multiplier * scale / 4)
+        self.types = types
+
+        self.ops = nn.ModuleList()
+
+        if prev_prev_c is not None:
+            self.preprocess0 = ConvLayer(prev_prev_c, self.outc, 1, 1, bias=False)
+
+        if prev_c is not None:
+            # up same down defined separatly
+            if prev_c == -1: # auto
+                if self.types == 'up': # ↗
+                    prev_c = int(self.filter_multiplier * self.block_multiplier * scale * 2 / 4)
+                    self.preprocess1 = FactorizedIncrease(prev_c, self.outc)
+                elif self.types == 'same':
+                    prev_c = int(self.filter_multiplier * self.block_multiplier * scale / 4)
+                    self.preprocess1 = ConvLayer(prev_c, self.outc, 1, 1, bias=False)
+                elif self.types == 'reduction':
+                    prev_c = int(self.filter_multiplier * self.block_multiplier * scale / 2 / 4)
+                    self.preprocess1 = FactorizedReduce(prev_c, self.outc)
+            else: # fixed
+                if self.types == 'up': # ↗
+                    self.preprocess1 = FactorizedIncrease(prev_c, self.outc)
+                elif self.types == 'same':
+                    self.preprocess1 = ConvLayer(prev_c, self.outc, 1, 1, bias=False)
+                elif self.types == 'reduction':
+                    self.preprocess1 = FactorizedReduce(prev_c, self.outc)
+
+        for i in range(self.steps):
+            for j in range(i+2):
+                stride = 1
+                if self.prev_prev_c is None and j == 0: # the first mixededge related to prev_prev_cell
+                    op = None
+                else:
+                    # skip connection: Identity
+                    # None: Zero
+                    op = MixedEdge(build_candidate_ops(
+                        self.conv_candidates,
+                        in_channels=self.outc, out_channels=self.outc,
+                        stride=stride, ops_order='act_weight_bn'
+                    ))
+                self.ops.append(op)
+
+        self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
+
+    def forward(self, s0, s1):
+        if s0 is not None:
+            s0 = self.preprocess0(s0)
+        s1 = self.preprocess1(s1)
+        states = [s0, s1]
+
+        offset = 0
+        for i in range(self.steps):
+            new_states = []
+            for index, h in enumerate(states):
+                branch_index = offset + index
+                if h is None or self.ops[branch_index] is None:
+                    continue
+                new_state = self.ops[branch_index](h) # one mixed edge output
+                new_states.append(new_state)
+            s = sum(new_states) # output of a node
+            offset += len(states)
+            states.append(s)
+
+        concat_feature = torch.cat([states[-self.block_multiplier:]], dim=1)
+        return self.final_conv1x1(concat_feature)
+
+
+
 
 

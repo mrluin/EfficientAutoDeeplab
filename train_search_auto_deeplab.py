@@ -10,6 +10,7 @@ from utils.common import set_logger
 from utils.common import set_manual_seed
 from configs.train_search_config import obtain_train_search_args
 from models.auto_deeplab import AutoDeepLab
+from models.proxy_cell_auto_deeplab import ProxyAutoDeepLab
 
 
 if __name__ == '__main__':
@@ -81,13 +82,11 @@ if __name__ == '__main__':
             }
         else:
             args.grad_reg_loss_params = None
-
         arch_search_config = GradientArchSearchConfig(**args.__dict__)
     elif args.arch_algo == 'rl':
         raise NotImplementedError
     else:
         raise NotImplementedError
-
     #logging.info('Run config:')
     print('Run Configs:')
     for k, v in run_config.config.items():
@@ -104,7 +103,7 @@ if __name__ == '__main__':
         '3x3_MBConv3', '3x3_MBConv6',
         '5x5_MBConv3', '5x5_MBConv6',
         '7x7_MBConv3', '7x7_MBConv6',
-        'Zero', 'Identity'
+        'Zero', #'Identity'
     ]
     '''
     # auto_deeplab origin candidates
@@ -115,7 +114,12 @@ if __name__ == '__main__':
         'Zero', 'Identity'
     ]
     '''
+    '''
     auto_deeplab = AutoDeepLab(
+        run_config, arch_search_config, args.conv_candidates
+    )
+    '''
+    auto_deeplab = ProxyAutoDeepLab(
         run_config, arch_search_config, args.conv_candidates
     )
     # arch search run manager

@@ -126,6 +126,7 @@ class MixedEdge(MyModule):
                 output_i = self.candidate_ops[_i](x)
                 output = output + self.AP_path_wb[_i] * output_i.detach()
         elif MixedEdge.MODE == 'full_v2':
+            # when update architecture parameter
             def run_function(candidate_ops, active_id):
                 def forward(_x):
                     return candidate_ops[active_id](_x)
@@ -155,12 +156,16 @@ class MixedEdge(MyModule):
                 x, self.AP_path_wb, run_function(self.candidate_ops, self.active_index[0]),
                 backward_function(self.candidate_ops, self.active_index[0], self.AP_path_wb)
             )
+            # self.AP_path_wb requires_grad=True, have value but grad is None
+            #print(self.AP_path_wb.grad)
         else:
+            # when training
             output = self.active_op(x)
         return output
 
     @property
     def module_str(self):
+        # return the chosen operation
         chosen_index, probs = self.chosen_index
         return 'MixedEdge({}, {.3f})'.format(self.candidate_ops[chosen_index].module_str, probs)
 
@@ -215,11 +220,15 @@ class MixedEdge(MyModule):
             self.AP_path_wb.data[active_op] = 1.0
         else:
             sample = torch.multinomial(probs.data, 1)[0].item()
+            # when not 'two' mode unused_modules is None, involved_index = active_index + inactive_index
             self.active_index = [sample]
+
             self.inactive_index = [_i for _i in range(0, sample)] + \
                                   [_i for _i in range(sample+1, self.n_choices)]
+
             self.log_prob = torch.log(probs[sample])
             self.current_prob_over_ops = probs
+
             self.AP_path_wb.data[sample] = 1.0
 
         # TODO: avoid over-regularization
@@ -228,12 +237,22 @@ class MixedEdge(MyModule):
                 param.grad = None
 
     def set_arch_param_grad(self):
+
+        '''
         # where comes from
-        binary_grads = self.AP_path_wb.grad.data
+        if self.AP_path_wb.grad is None :
+            print(self.AP_path_wb)
+            print(self.active_op)
+            #print(self.module_str)
+            '''
+        # TODO: change line of binary_grads = self.AP_path_wb.grad.data
 
         if self.active_op.is_zero_layer():
             self.AP_path_alpha.grad = None
             return
+
+        binary_grads = self.AP_path_wb.grad.data
+
         if self.AP_path_alpha.grad is None:
             self.AP_path_alpha.grad = torch.zeros_like(self.AP_path_alpha.data)
 
@@ -295,6 +314,6 @@ class ArchGradientFunction(torch.autograd.Function):
 
         # compute gradient w.r.t. binary_gates
         binary_grads = ctx.backward_func(detached_x.data, output.data, grad_outputs.data)
-
+        #print(binary_grads)
         # return value related to forward arguments
         return grad_x[0], binary_grads, None, None

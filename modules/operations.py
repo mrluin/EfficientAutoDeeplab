@@ -24,7 +24,7 @@ def set_layer_from_config(layer_config):
     layer = name2layer[layer_name]
     return  layer.build_from_config(layer_config)
 
-def build_activation(act_func, inplace=True):
+def build_activation(act_func, inplace=False):
     if act_func == 'relu':
         return nn.ReLU(inplace=inplace)
     elif act_func == 'relu6':
@@ -69,7 +69,7 @@ class My2DLayer(MyModule):
             modules['bn'] = None
 
         # activation
-        modules['act'] = build_activation(self.act_func, inplace=True)
+        modules['act'] = build_activation(self.act_func, inplace=False)
         # dropout
         if self.dropout_rate > 0.:
             modules['dropout'] = nn.Dropout2d(self.dropout_rate, inplace=True)
@@ -345,7 +345,7 @@ class FactorizedReduce(MyModule):
         self.bias=bias
         self.ops_order = ops_order
         self.act = act
-        self.act_func = build_activation(act, inplace=True)
+        self.act_func = build_activation(act, inplace=False)
         # bn after weight_conv by default
         if use_bn:
             self.bn = nn.BatchNorm2d(outc)
@@ -398,7 +398,7 @@ class FactorizedIncrease(MyModule):
         self.bias = bias
         self.ops_order = ops_order
 
-        self.act_func = build_activation(self.act, inplace=True)
+        self.act_func = build_activation(self.act, inplace=False)
         if self.use_bn:
             self.bn = nn.BatchNorm2d(self.outc)
         self.upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
@@ -444,6 +444,7 @@ class ASPP(MyModule):
         super(ASPP, self).__init__()
 
         self.nb_classes = nb_classes
+        self.dilation = dilation
         self.conv1x1 = nn.Sequential(
             nn.Conv2d(inc, inc, 1, bias=False),
             nn.BatchNorm2d(inc)
@@ -475,11 +476,19 @@ class ASPP(MyModule):
         concat = torch.cat([conv1x1, conv3x3, convgp], dim=1)
         return self.final_conv(self.concat_conv(concat))
 
+    def get_flops(self, x):
 
+        flop_conv1x1, conv1x1 = count_conv_flop(self.conv1x1,x), self.conv1x1(x)
+        flop_conv3x3, conv3x3 = count_conv_flop(self.conv3x3, x), self.conv3x3(x)
+        convgp = F.interpolate(self.global_pooling(x), size=x.size()[2:], mode='bilinear', align_corners=True)
+        flop_convgp, convgp = count_conv_flop(self.gp_conv, convgp), self.gp_conv(convgp)
+        cat_feature = torch.cat([conv1x1, conv3x3, convgp], dim=1)
+        flop_concat, output = count_conv_flop(self.concat_conv, cat_feature), self.concat_conv(cat_feature)
+        flop_final, output = count_conv_flop(self.final_conv, output), self.final_conv(output)
+        return flop_conv1x1 + flop_conv3x3 + flop_convgp + flop_concat + flop_final, output
 
-
-
-
+    def module_str(self):
+        return 'ASPP Conv{}x{}_d{}'.format(3, 3, self.dilation)
 
 
 class MBInvertedConvLayer(MyModule):
@@ -506,7 +515,7 @@ class MBInvertedConvLayer(MyModule):
             self.inverted_bottleneck = nn.Sequential(OrderedDict([
                 ('Conv', nn.Conv2d(self.inc, feature_dim, 1, 1, 0, bias=False)),
                 ('bn', nn.BatchNorm2d(feature_dim)),
-                ('act', nn.ReLU6(inplace=True))
+                ('act', nn.ReLU6(inplace=False))
             ]))
 
         pad = get_padding_size(self.kernel_size, 1)
@@ -514,7 +523,7 @@ class MBInvertedConvLayer(MyModule):
         self.depth_conv = nn.Sequential(OrderedDict([
             ('Conv', nn.Conv2d(feature_dim, feature_dim, kernel_size, stride, pad, groups=feature_dim, bias=False)),
             ('bn', nn.BatchNorm2d(feature_dim)),
-            ('act', nn.ReLU6(inplace=True))
+            ('act', nn.ReLU6(inplace=False))
         ]))
 
         self.point_conv = nn.Sequential(OrderedDict([
@@ -579,7 +588,7 @@ class MobileInvertedResidualBlock(MyModule):
             res = self.mobile_inverted_conv(x)
         else:
             conv_x = self.mobile_inverted_conv(x)
-            skip_x = self.shortcut9x
+            skip_x = self.shortcut(x)
             res = skip_x + conv_x
         return res
 

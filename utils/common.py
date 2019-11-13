@@ -131,3 +131,37 @@ def save_inter_tensor(list, val):
         list.pop(0)
         list.append(val)
         return list
+
+def get_next_scale(choice, current_scale):
+    # scale in 0, 1, 2, 3, 4
+    if choice == 1:
+        return current_scale
+    elif choice == 0:
+        return current_scale -1
+    elif choice == 2:
+        return current_scale + 1
+
+def get_list_index(layer, scale):
+    if layer == 0:
+        return scale
+    elif layer == 1:
+        return 2+scale
+    elif layer == 2:
+        return 5+scale
+    elif layer >= 3:
+        return 4*(layer-3)+9+scale
+
+def get_prev_c(intermediate_features, scale):
+    # scale is next scale
+    if intermediate_features[-2][0] == scale:
+        return intermediate_features[-2][1], intermediate_features[-1][1]
+    else:
+        return None, intermediate_features[-1][1]
+
+def get_cell_decode_type(current_scale, next_scale):
+    if current_scale == next_scale:
+        return 'same'
+    elif current_scale == next_scale - 1:
+        return 'reduction'
+    elif current_scale == next_scale + 1:
+        return 'up'

@@ -34,7 +34,8 @@ class RunConfig:
                  optim_type, optim_params, weight_decay,
                  label_smoothing, no_decay_keys,
                  model_init, init_div_groups, filter_multiplier, block_multiplier, steps, bn_momentum, bn_eps, dropout, nb_layers,
-                 validation_freq, print_freq, save_ckpt_freq, monitor,
+                 validation_freq, print_freq, save_ckpt_freq, monitor, print_save_arch_information, save_normal_net_after_training,
+                 print_arch_param_step_freq,
                  use_unbalanced_weights,
                  **kwargs):
 
@@ -80,6 +81,9 @@ class RunConfig:
         self.print_freq = print_freq
         self.save_ckpt_freq = save_ckpt_freq
         self.monitor = monitor
+        self.print_save_arch_information = print_save_arch_information
+        self.save_normal_net_after_training = save_normal_net_after_training
+        self.print_arch_param_step_freq = print_arch_param_step_freq
 
         self.use_unbalanced_weights = use_unbalanced_weights
 
@@ -273,7 +277,7 @@ class RunManager:
         if torch.cuda.is_available():
             self.device = torch.device('cuda:{}'.format(self.run_config.gpu_ids))
             print(self.device)
-            self.net = self.net.to(self.device)
+            self.net.to(self.device)
         else:
             raise ValueError('do not support cpu version')
 
@@ -336,8 +340,15 @@ class RunManager:
     ''' net info '''
     def net_flops(self):
         # arch_network_parameter, can only get expected flops
-        # TODO: get flops of specific architecture
-        raise NotImplementedError
+        # TODO: get flops of specific architecture, related to architecture parameter
+        data_shape = [1] + list(self.run_config.data_provider.data_shape)
+
+        net = self.net
+        input_var = torch.zeros(data_shape, device=self.device)
+        with torch.no_grad():
+            flop, _ = net.get_flops(input_var)
+        return flop
+
 
     def net_latency(self):
         raise NotImplementedError
@@ -501,6 +512,7 @@ class RunManager:
                 fout.flush()
 
         # train + valid + test
+        # train re-confirmed
         if prefix in ['valid', 'test', 'train']:
             with open(os.path.join(self.log_path, 'train_console.txt'), 'a') as fout:
                 if prefix in ['valid', 'test']:
@@ -544,7 +556,7 @@ class RunManager:
                 data_time.update(time.time()-end0)
 
                 logits = net(datas)
-                loss = self.criterion.calculate_loss(logits, targets)
+                loss = self.criterion(logits, targets)
                 # metrics calculate and update
                 evaluator = Evaluator(self.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
@@ -605,7 +617,7 @@ class RunManager:
             if self.run_config.label_smoothing > 0:
                 raise NotImplementedError
             else:
-                loss = self.criterion.calculate_loss(logits, targets)
+                loss = self.criterion(logits, targets)
             evaluator = Evaluator(self.run_config.nb_classes)
             evaluator.add_batch(targets, logits)
             acc = evaluator.Pixel_Accuracy()

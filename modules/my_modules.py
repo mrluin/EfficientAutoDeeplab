@@ -6,11 +6,11 @@ import math
 
 class MyModule(nn.Module):
 
-    def forward(self, *x):
+    def forward(self, *args, **kwargs):
         raise NotImplementedError
 
     @property
-    def module_str(self):
+    def module_str(self, *args, **kwargs):
         raise NotImplementedError
 
     @property
@@ -21,17 +21,17 @@ class MyModule(nn.Module):
     def build_from_config(config):
         raise NotImplementedError
 
-    def get_flops(self, x):
+    def get_flops(self, *args, **kwargs):
         raise NotImplementedError
 
 
 class MyNetwork(MyModule):
 
-    def forward(self, x):
+    def forward(self, *args, **kwargs):
         raise NotImplementedError
 
     @property
-    def module_str(self):
+    def module_str(self, *args, **kwargs):
         raise NotImplementedError
 
     @property
@@ -42,7 +42,7 @@ class MyNetwork(MyModule):
     def build_from_config(config):
         raise NotImplementedError
 
-    def get_flops(self, x):
+    def get_flops(self, *args, **kwargs):
         raise NotImplementedError
 
     def set_bn_param(self, momentum, eps):

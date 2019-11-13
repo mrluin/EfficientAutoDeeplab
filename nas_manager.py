@@ -12,6 +12,7 @@ from utils.common import get_monitor_metric
 from utils.metrics import Evaluator
 from modules.mixed_op import *
 from utils.common import count_parameters
+from utils.common import get_list_index
 
 '''
 # ArchSearchConfig: architecture parameter init and optimizer
@@ -198,18 +199,15 @@ class ArchSearchRunManager:
         # valid_loader batch_size = test_batch_size
         # have already equals to test_batch_size in DataProvider
         self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.run_manager.run_config.test_batch_size
-        self.run_manager.run_config.valid_loader.batch_sampler.drop_last=False
+        self.run_manager.run_config.valid_loader.batch_sampler.drop_last = False
 
-        # set chosen op active
         self.net.set_chosen_op_active()
-        # remove unused modules off
         self.net.unused_modules_off()
-
+        # TODO: network_level and cell_level decode in net_flops() method
         # TODO: valid on validation set (from training set) under train mode
         # only have effect on operation related to train mode
         # like bn or dropout
         loss, acc, miou, fscore = self.run_manager.validate(is_test=False, net=self.net, use_train_mode=True)
-        # flops
         flops = self.run_manager.net_flops()
 
         # target_hardware is None by default
@@ -217,46 +215,47 @@ class ArchSearchRunManager:
             latency = 0
         else:
             raise NotImplementedError
+
         self.net.unused_modules_back()
         return loss, acc, miou, fscore, flops, latency
 
+    def warm_up(self, warmup_epochs):
+        if warmup_epochs <=0 :
+            print('warmup close')
+            return
 
-    def warm_up(self, warmup_epochs=25):
         lr_max = 0.05
         data_loader = self.run_manager.run_config.train_loader
         iter_per_epoch = len(data_loader)
         total_iteration = warmup_epochs * iter_per_epoch
 
-        print('warmup')
+        print('warmup begin')
+        '''
         # check params device
         for name, param in self.net.named_parameters():
             device = param.device
             if device == torch.device('cpu'):
                 print('ERROR in', name, device)
-
+                '''
         def hook(module, grad_input, grad_output):
-
             for i in range(len(grad_input)):
-                if grad_input[i] is not None:
-                    print(grad_input[i].device)
-                else:
-                    #print('input', module.__name__)
-                    print(module)
-
+                if grad_input[i] is not None and torch.Tensor.type(grad_input[i]) == 'torch.FloatTensor':
+                    print('yes')
             for j in range(len(grad_output)):
-                if grad_output[j] is not None:
-                    print(grad_output[j].device)
-                else:
-                    #print('output', module.__name__)
-                    print(module)
-
-        for module in self.net.modules():
-            module.register_backward_hook(hook)
-
-        loss_func = nn.CrossEntropyLoss().to(self.run_manager.device)
-
+                if grad_output[j] is not None and torch.Tensor.type(grad_output[j]) == 'torch.FloatTensor':
+                    print('yes')
+        def forward_hook(module, input, output):
+            for i in range(len(input)):
+                if input[i] is not None and torch.Tensor.type(input[i]) != 'torch.cuda.FloatTensor':
+                    print('find the error input')
+            for j in range(len(output)):
+                if output[j] is not None and torch.Tensor.type(output[j]) != 'torch.cuda.FloatTensor':
+                    print('find the error output')
+        # for module in self.net.modules():
+            # module.register_backward_hook(hook)
+            # module.register_forward_hook(forward_hook)
         for epoch in range(self.warmup_epoch, warmup_epochs):
-            logging.info('\n', '-'*30, 'Warmup Epoch: {}'.format(epoch+1), '-'*30, '\n')
+            print('\n', '-'*30, 'Warmup Epoch: {}'.format(epoch+1), '-'*30, '\n')
             batch_time = AverageMeter()
             data_time = AverageMeter()
             losses = AverageMeter()
@@ -264,9 +263,8 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
-            #self.run_manager.net.train()
-            self.net.train()
-            print('warm up epoch {}'.format(epoch))
+            self.run_manager.net.train()
+            print('\twarm up epoch {}'.format(epoch))
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
                 if torch.cuda.is_available():
@@ -285,12 +283,9 @@ class ArchSearchRunManager:
                 #for param_group in self.run_manager.optimizer.param_groups:
                 #    param_group['lr'] = warmup_lr
 
-                # output
-
                 self.net.reset_binary_gates()
                 self.net.unused_modules_off()
 
-                #logits = self.run_manager.net(datas)
                 logits = self.net(datas)
                 '''
                 if self.run_manager.run_config.label_smoothing > 0.:
@@ -298,25 +293,23 @@ class ArchSearchRunManager:
                 else:
                     loss = self.run_manager.criterion(logits, targets)
                     '''
-
-                print(logits.device, type(logits), logits.dtype)
-                print(targets.device, type(targets), targets.dtype)
-
-                loss = loss_func(logits, targets)
-
-                self.net.zero_grad()
-
+                '''
+                # check param device
                 for name, param in self.net.named_parameters():
-                    device = param.device
-                    if device == torch.device('cpu'):
-                        print('ERROR in', name, device)
-
-                #print(loss)
-
+                    if torch.Tensor.type(param) == 'torch.FloatTensor':
+                        print('Error in:', name)
+                        '''
+                loss = self.run_manager.criterion(logits, targets)
+                #print('loss:', torch.Tensor.type(loss))
+                self.net.zero_grad()
+                '''
+                # check param device
+                for name, param in self.net.named_parameters():
+                    if torch.Tensor.type(param) == 'torch.FloatTensor':
+                        print('Error in:', name)
+                        '''
 
                 loss.backward()
-
-
                 self.run_manager.optimizer.step()
                 self.net.unused_modules_back()
 
@@ -325,9 +318,9 @@ class ArchSearchRunManager:
                 evaluator.add_batch(targets, logits)
                 acc = evaluator.Pixel_Accuracy()
                 miou = evaluator.Mean_Intersection_over_Union()
-                fscore =  evaluator.Fx_Score()
+                fscore = evaluator.Fx_Score()
 
-                losses.update(loss.data, datas.size(0))
+                losses.update(loss.data.item(), datas.size(0))
                 accs.update(acc, datas.size(0))
                 mious.update(miou, datas.size(0))
                 fscores.update(fscore, datas.size(0))
@@ -355,8 +348,8 @@ class ArchSearchRunManager:
                     self.run_manager.write_log(batch_log, 'train')
             # at the end of each epoch, performing valid
             valid_loss, valid_acc, valid_miou, valid_fscore, flops, latency = self.validate()
-            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:.1f}M'\
-                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops/1e6)
+            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M'\
+                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops)
             valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
 
             # target_hardware is None by default
@@ -399,6 +392,9 @@ class ArchSearchRunManager:
 
         update_schedule = self.arch_search_config.get_update_schedule(iter_per_epoch)
 
+        # TODO: print arch_param update_schedule
+        #print(update_schedule)
+
         for epoch in range(self.run_manager.start_epoch, self.run_manager.run_config.total_epochs):
             logging.info('\n', '-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30, '\n')
 
@@ -433,6 +429,7 @@ class ArchSearchRunManager:
                     # compute output
                     self.net.reset_binary_gates()
                     self.net.unused_modules_off()
+                    #print(self.net._unused_modules)
                     #logits = self.run_manager.net(datas)
                     logits = self.net(datas)
                     # loss
@@ -453,8 +450,8 @@ class ArchSearchRunManager:
 
                     # compute gradient and do SGD step
                     # zero out, network weight parameters, binary_gates, and arch_param
-                    #self.run_manager.net.zero_grad()
-                    self.net.zero_grad()
+                    self.run_manager.net.zero_grad()
+                    #self.net.zero_grad()
                     loss.backward()
                     # here only update network weight parameters
                     self.run_manager.optimizer.step()
@@ -462,17 +459,20 @@ class ArchSearchRunManager:
 
                 # TODO: skip arch_param update in the first epoch
                 if epoch > 0:
-                    for j in range(update_schedule.get(i, 0)):
+                    for j in range(update_schedule.get(i, 0)): # step i update arch_param times
                         start_time = time.time()
                         if isinstance(self.arch_search_config, GradientArchSearchConfig):
                             # target_hardware is None, exp_value is None by default
-                            arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
-                            used_time = time.time() - start_time
-                            # current architecture information
-                            # performance and flops
-                            log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\tLoss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n'\
-                                .format(epoch+1, i, used_time, arch_loss, arch_acc, arch_miou, arch_fscore)
-                            self.run_manager.write_log(log_str, prefix='gradient_search', should_print=True)
+                            time_log, arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
+                            if i % self.run_manager.run_config.print_arch_param_step_freq == 0 or i + 1 == iter_per_epoch:
+                                used_time = time.time() - start_time
+                                # current architecture information
+                                # performance and flops
+                                log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\n' \
+                                          'Loss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n'\
+                                    .format(epoch+1, i, used_time, arch_loss, arch_acc, arch_miou, arch_fscore)
+
+                                self.run_manager.write_log(log_str+time_log, prefix='gradient_search', should_print=True)
                         else:
                             raise ValueError('do not support version {}'.format(type(self.arch_search_config)))
                 batch_time.update(time.time() - end)
@@ -491,13 +491,15 @@ class ArchSearchRunManager:
                     )
                     self.run_manager.write_log(batch_log, 'train', should_print=True)
 
-            # print current network architecture at the end of each epoch
-            self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30, prefix='arch', should_print=True)
-            for idx, block in enumerate(self.net.blocks):
-                self.run_manager.write_log('{}. {}'.format(idx, block.module_str), prefix='arch', should_print=True)
-            self.run_manager.write_log('-'*60, prefix='arch', should_print=True)
+            # print_save_arch_information
+            if self.run_manager.run_config.print_save_arch_information:
+                # print current network architecture at the end of each epoch
+                self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30, prefix='arch', should_print=True)
+                log_str = self.net.module_str()
+                self.run_manager.write_log(log_str, prefix='arch', should_print=True)
+                self.run_manager.write_log('-' * 60, prefix='arch', should_print=True)
 
-            # validate at the end of each epoch
+            # valid_freq
             if (epoch+1) % self.run_manager.run_config.validation_freq == 0:
                 val_loss, val_acc, val_miou, val_fscore, flops, latency = self.validate()
 
@@ -510,7 +512,7 @@ class ArchSearchRunManager:
                     loss=losses, accs=accs, mious=mious, fscores=fscores
                 )
                 self.run_manager.write_log(val_log, 'valid', should_print=True)
-            # save model
+            # save_ckpt_freq
             if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
                 self.run_manager.save_model(epoch, {
                     'warmup': False,
@@ -519,24 +521,29 @@ class ArchSearchRunManager:
                     'arch_optimizer': self.arch_optimizer.state_dict(),
                     'state_dict': self.net.state_dict(),
                 }, is_best=False, checkpoint_file_name=None)
+        # after training phase
+        if self.run_manager.run_config.save_normal_net_after_training:
 
-        # TODO: convert to normal network according to architecture parameters
-        normal_net = self.net.cpu().convert_to_normal_net()
-        logging.info('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
-        os.makedirs(os.path.join(self.run_manager.path, 'learned_net'), exist_ok=True)
-        json.dump(normal_net.config, open(os.path.join(self.run_manager.path, 'learned_net/net.config'), 'w'), indent=4)
-        json.dump(
-            self.run_manager.run_config.config,
-            open(os.path.join(self.run_manager.path, 'learned_net/run.config'), 'w'),
-            indent=4
-        )
-        torch.save(
-            {'state_dict': normal_net.state_dict(),
-             'dataset': self.run_manager.run_config.dataset},
-            os.path.join(self.run_manager.path, 'learned_net/init')
-        )
+            # obtain normal cells
+            normal_net = self.net.cpu().convert_to_normal_net()
+            # TODO: network level need split cells
+            logging.info('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
+
+            os.makedirs(os.path.join(self.run_manager.path, 'learned_net'), exist_ok=True)
+            json.dump(normal_net.config, open(os.path.join(self.run_manager.path, 'learned_net/net.config'), 'w'), indent=4)
+            json.dump(
+                self.run_manager.run_config.config,
+                open(os.path.join(self.run_manager.path, 'learned_net/run.config'), 'w'),
+                indent=4
+            )
+            torch.save(
+                {'state_dict': normal_net.state_dict(),
+                 'dataset': self.run_manager.run_config.dataset},
+                os.path.join(self.run_manager.path, 'learned_net/init')
+            )
 
     def gradient_step(self):
+
         assert isinstance(self.arch_search_config, GradientArchSearchConfig)
 
         # if data_batch is None, equals to train_batch_size
@@ -549,11 +556,11 @@ class ArchSearchRunManager:
         self.run_manager.run_config.valid_loader.batch_sampler.drop_last = True
 
         #self.run_manager.net.train()
-        self.net.train()
+        self.run_manager.net.train()
 
         # TODO: MixedEdge !!!
-        MixedEdge.MODE = self.arch_search_config.grad_binary_mode
-        print(MixedEdge.MODE)
+        MixedEdge.MODE = self.arch_search_config.grad_binary_mode # full_v2
+        #print('MixedEdge.MODE:',MixedEdge.MODE)
         time1 = time.time()
 
         # a batch of data from valid set (split from training)
@@ -564,10 +571,20 @@ class ArchSearchRunManager:
         else:
             raise ValueError('do not support cpu version')
         time2 = time.time()
-        self.net.binary_gates()
+
+        #print('='*30)
+        #print(self.net._unused_modules)
+        self.net.reset_binary_gates()
+
+        #for param in self.net.binary_gates():
+        #    print(param)
+
         self.net.unused_modules_off()
-        #logits = self.run_manager.net(datas)
-        logits = self.net(datas)
+
+       # print(self.net._unused_modules)
+
+        logits = self.run_manager.net(datas)
+        #logits = self.net(datas)
         time3 = time.time()
         # loss
         # TODO: why only simple ce_loss
@@ -589,28 +606,38 @@ class ArchSearchRunManager:
         else:
             raise NotImplementedError
 
-        # if target_hardware is None, return singel ce_loss
+        # if target_hardware is None, return simple ce_loss
         loss = self.arch_search_config.add_regularization_loss(loss, expected_value)
 
         # self.run_manager.net.zero_grad()
         # loss.backward() only binary gates have gradient
         # set arch_parameter gradients according to the gradients of binary gates
-        self.net.zero_grad()
+        #print('\tBefore self.net.zero_grad()')
+        self.run_manager.net.zero_grad()
+        #print('\tAfter self.net.zero_grad()')
+        #print(self.net.binary_gates())
+
         loss.backward()
+        # print binary_gates.grad
+        # but some mixed edge has no grad
+        # for param in self.net.binary_gates():
+        #    print(param.grad)
+
+        # TODO: change mode
+        MixedEdge.MODE = 'two'
+
         self.net.set_arch_param_grad() # get old_alphas
+
         self.arch_optimizer.step() # get new_alphas
+
         # TODO: change MODE
         if MixedEdge.MODE == 'two':
             self.net.rescale_updated_arch_param() # rescale updated arch_params according to old_alphas and new_alphas
         self.net.unused_modules_back()
         MixedEdge.MODE = None
         time4 = time.time()
-        self.run_manager.write_log(
-            '{:.4f}, {:.4f}, {:.4f}'.format(time2-time1, time3-time2, time4-time3),
-            prefix='gradient_search',
-            should_print=True,
-        )
+        gradient_step_time_log = 'Data time: {:.4f},\tInference time: {:.4f},\tBackward time: {:.4f}\n'.format(time2-time1, time3-time2, time4-time3)
         # TODO: need modification
-        return loss.data.item(), acc.item(), miou.item(), fscore.item(), expected_value.item() if expected_value is not None else None
+        return gradient_step_time_log, loss.data.item(), acc.item(), miou.item(), fscore.item(), expected_value.item() if expected_value is not None else None
 
 
