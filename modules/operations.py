@@ -489,7 +489,7 @@ class ASPP(MyModule):
         return flop_conv1x1 + flop_conv3x3 + flop_convgp + flop_concat + flop_final, output
 
     def module_str(self):
-        return 'ASPP Conv{}x{}_d{}'.format(3, 3, self.dilation)
+        return 'ASPP conv1x1 conv3x3_d{} globpooling'.format(3, 3, self.dilation)
 
 
 class MBInvertedConvLayer(MyModule):
@@ -595,8 +595,10 @@ class MobileInvertedResidualBlock(MyModule):
 
 
     def module_str(self):
-        return '({}, {})'.format(
-            self.mobile_inverted_conv.module_str,
+        # self.mobile_inverted_conv is MixedOperation
+        # shortcut is Identity
+        return 'MBConvResBlock({}, {})'.format(
+            self.mobile_inverted_conv.module_str() if self.mobile_inverted_conv is not None else None,
             self.shortcut.module_str if self.shortcut is not None else None
         )
 
