@@ -125,7 +125,7 @@ def count_conv_flop(layer, x):
 def count_normal_conv_flop(layer, x):
     out_h = int(x.size()[2] / layer.stride[0])
     out_w = int(x.size()[3] / layer.stride[1])
-    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size * layer.kernel_size * \
+    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1] * \
                 out_h * out_w / layer.groups
     return delta_ops
 
