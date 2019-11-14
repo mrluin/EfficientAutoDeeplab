@@ -115,18 +115,34 @@ def detach_variable(inputs):
 
 def count_conv_flop(layer, x):
     # dilations do not change conv_flops
-    out_h = int(x.size()[2] / layer.stride[0])
-    out_w = int(x.size()[3] / layer.stride[1])
-    delta_ops = layer.inc * layer.outc * layer.kernel_size * layer.kernel_size * \
-        out_h * out_w / layer.groups
+    if isinstance(layer.stride, tuple):
+        out_h = int(x.size()[2] / layer.stride[0])
+        out_w = int(x.size()[3] / layer.stride[1])
+    else:
+        out_h = int(x.size()[2] / layer.stride)
+        out_w = int(x.size()[3] / layer.stride)
+    if isinstance(layer.kernel_size, tuple):
+        delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1] * \
+            out_h * out_w / layer.groups
+    else:
+        delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size * layer.kernel_size * \
+                    out_h * out_w / layer.groups
 
     return delta_ops
 
 def count_normal_conv_flop(layer, x):
-    out_h = int(x.size()[2] / layer.stride[0])
-    out_w = int(x.size()[3] / layer.stride[1])
-    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1] * \
-                out_h * out_w / layer.groups
+    if isinstance(layer.stride, tuple):
+        out_h = int(x.size()[2] / layer.stride[0])
+        out_w = int(x.size()[3] / layer.stride[1])
+    else:
+        out_h = int(x.size()[2] / layer.stride)
+        out_w = int(x.size()[3] / layer.stride)
+    if isinstance(layer.kernel_size, tuple):
+        delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1] * \
+            out_h * out_w / layer.groups
+    else:
+        delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size * layer.kernel_size * \
+                    out_h * out_w / layer.groups
     return delta_ops
 
 
@@ -211,6 +227,12 @@ def get_prev_c(intermediate_features, scale):
     else:
         return None, intermediate_features[-1][1]
 
+def get_prev_c_abs(intermediate_features, scale):
+    if np.abs(intermediate_features[-2][0] - scale) <= 1:
+        return intermediate_features[-2][1], intermediate_features[-1][1]
+    else:
+        return None, intermediate_features[-1][1]
+
 def get_cell_decode_type(current_scale, next_scale):
     if current_scale == next_scale:
         return 'same'
@@ -218,6 +240,10 @@ def get_cell_decode_type(current_scale, next_scale):
         return 'reduction'
     elif current_scale == next_scale + 1:
         return 'up'
+def get_scale_relation(scale, next_scale):
+
+    raise NotImplementedError
+
 
 
 def network_layer_to_space(net_arch, nb_layers):

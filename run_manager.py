@@ -341,7 +341,9 @@ class RunManager:
     def net_flops(self):
         # arch_network_parameter, can only get expected flops
         # TODO: get flops of specific architecture, related to architecture parameter
+
         data_shape = [1] + list(self.run_config.data_provider.data_shape)
+        # data_shape [1, 3, 512, 512]
 
         net = self.net
         input_var = torch.zeros(data_shape, device=self.device)

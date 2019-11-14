@@ -674,7 +674,7 @@ class ProxyAutoDeepLab(MyNetwork):
             index = get_list_index(layer, next_scale)
             type = get_cell_decode_type(current_scale, next_scale)
             frag_cell_log = '(Layer {} Scale {} Index {})\n'\
-                                .format(layer + 1, next_scale, index) + self.cells[index].module_str(prev_prev_c, type)  # each proxy cell and its mixed operations
+                                .format(layer + 1, next_scale, index) + self.cells[index].module_str(type)  # each proxy cell and its mixed operations
             log_str += frag_cell_log
 
         last_scale = best_result[-1][1]
@@ -729,7 +729,7 @@ class ProxyAutoDeepLab(MyNetwork):
             flop_aspp, output = self.aspp32.get_flops(inter_features[-1][1])
         else:
             raise ValueError('invalid scale choice of {}'.format(last_scale))
-        return flop_stem1 + flop_stem0 + flop_stem2 + flops + flop_aspp
+        return flop_stem1 + flop_stem0 + flop_stem2 + flops + flop_aspp, output
 
     def convert_to_normal_net(self):
         queue = Queue()

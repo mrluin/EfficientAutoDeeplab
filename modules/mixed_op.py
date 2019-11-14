@@ -166,7 +166,7 @@ class MixedEdge(MyModule):
     def module_str(self):
         # return the chosen operation
         chosen_index, probs = self.chosen_index
-        return 'MixedEdge({}, {.3f})'.format(self.candidate_ops[chosen_index].module_str, probs)
+        return 'MixedEdge({}, {:.3f})'.format(self.candidate_ops[chosen_index].module_str, probs)
 
     @property
     def config(self):

@@ -1,6 +1,7 @@
 import os
 import logging
 import torch
+import torch.nn as nn
 
 from run_manager import RunConfig
 from nas_manager import ArchSearchRunManager
@@ -122,6 +123,32 @@ if __name__ == '__main__':
     auto_deeplab = ProxyAutoDeepLab(
         run_config, arch_search_config, args.conv_candidates
     )
+    '''
+    # auto_deeplab._modules : stem0 stem1 stem2 stem3, cells, aspp4, aspp8, aspp16, aspp32
+    # cells: cells_index, cell
+    # cell: ops, preprocess0, preprocess1, final_conv1x1
+    # ops: MobileInvertedResidualBlock -> mobile_inverted_conv : MixedEdge !!!
+    #                                  -> shortcut : Identity
+    '''
+    '''
+    candidate_ops = nn.ModuleList()
+    candidate_ops.append(nn.Conv2d(3,3,1,1,0, bias=False))
+
+    for module in auto_deeplab.modules():
+        if module.__str__().startswith('MixedEdge'):
+            module = candidate_ops[0]
+
+    for module in auto_deeplab.modules():
+        if module.__str__().startswith('MixedEdge'):
+            print(module)
+            '''
+
+
+
+
+
+
+    '''         
     # arch search run manager
     arch_search_run_manager = ArchSearchRunManager(args.path, auto_deeplab, run_config, arch_search_config)
 
@@ -145,7 +172,7 @@ if __name__ == '__main__':
         arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
     # joint training
     arch_search_run_manager.train(fix_net_weights=args.debug)
-
+    '''
 
 
 

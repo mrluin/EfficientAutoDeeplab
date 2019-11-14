@@ -6,7 +6,7 @@ from genotype import PRIMITIVES
 
 from run_manager import *
 
-__all__ = ['Cell', 'Split_Cell']
+#__all__ = ['Cell', 'Split_Cell']
 
 class Cell(MyModule):
     def __init__(self,
@@ -204,7 +204,7 @@ class Split_Cell(MyModule):
             offset += len(states)
             states.append(s)
 
-        concat_feature = torch.cat([states[-self.block_multiplier:]], dim=1)
+        concat_feature = torch.cat(states[-self.block_multiplier:], dim=1)
         return self.final_conv1x1(concat_feature)
 
     def get_flops(self, prev_prev_c, prev_c):

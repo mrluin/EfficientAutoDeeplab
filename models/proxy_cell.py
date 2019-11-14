@@ -83,10 +83,10 @@ class Proxy_cell(MyModule):
                         stride=stride, ops_order='act_weight_bn'
                     ))
                     shortcut = Identity(self.outc, self.outc)
-                #if conv_op is None and shortcut is None:
-                    #inverted_residual_block = None
-                #else:
-                inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+                if conv_op is None and shortcut is None:
+                    inverted_residual_block = None
+                else:
+                    inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
                 self.ops.append(inverted_residual_block)
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
 
@@ -169,9 +169,9 @@ class Proxy_cell(MyModule):
             offset += len(states)
             states.append(s)
 
-        concat_features = torch.concat([states[-self.steps:]], dim=1)
-        flop_concat, out = count_conv_flop(self.final_conv1x1, concat_features)
-
+        concat_features = torch.cat(states[-self.steps:], dim=1)
+        flop_concat = count_conv_flop(self.final_conv1x1, concat_features)
+        out = self.final_conv1x1(concat_features)
         return flop_preprocess0 + flop_preprocess1 + flops + flop_concat, out
 
     def module_str(self, type):

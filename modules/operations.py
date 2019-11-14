@@ -46,8 +46,8 @@ def build_activation(act_func, inplace=False):
 # nn.Module --> MyModule --> My2DLayer
 class My2DLayer(MyModule):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  use_bn=True,
                  act_func='relu',
                  dropout_rate=0.,
@@ -55,8 +55,8 @@ class My2DLayer(MyModule):
 
         super(My2DLayer, self).__init__()
 
-        self.inc = inc
-        self.outc = outc
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.use_bn = use_bn
         self.act_func = act_func
         self.dropout_rate = dropout_rate
@@ -65,7 +65,7 @@ class My2DLayer(MyModule):
         modules = {}
         # use 'act_weight_bn' by default
         if self.use_bn:
-            modules['bn'] = nn.BatchNorm2d(self.outc)
+            modules['bn'] = nn.BatchNorm2d(self.out_channels)
         else:
             modules['bn'] = None
 
@@ -112,8 +112,8 @@ class My2DLayer(MyModule):
     @property
     def config(self):
         return {
-            'in_channels': self.inc,
-            'out_channels': self.outc,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
             'use_bn': self.use_bn,
             'act_func': self.act_func,
             'dropout_rate': self.dropout_rate,
@@ -131,8 +131,8 @@ class My2DLayer(MyModule):
 
 class ConvLayer(My2DLayer):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  kernel_size,
                  stride,
                  bias,
@@ -144,12 +144,13 @@ class ConvLayer(My2DLayer):
         self.stride = stride
         self.padding = get_padding_size(self.kernel_size, 1)
         self.bias = bias
-        super(ConvLayer, self).__init__(inc, outc, use_bn, act_func, dropout_rate, ops_order)
+        self.groups = 1
+        super(ConvLayer, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
 
     def weight_op(self):
         weight_dict = OrderedDict()
         weight_dict['conv'] = nn.Conv2d(
-            self.inc, self.outc, kernel_size=self.kernel_size, stride=self.stride,
+            self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride=self.stride,
             padding=self.padding, dilation=1, groups=1, bias=self.bias
         )
         return weight_dict
@@ -175,8 +176,8 @@ class ConvLayer(My2DLayer):
 
 class DilConv(My2DLayer):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  kernel_size,
                  stride,
                  dilation,
@@ -190,11 +191,11 @@ class DilConv(My2DLayer):
         self.dilation = dilation
         self.padding = get_padding_size(self.kernel_size, self.dilation)
         self.bias = bias
-        super(DilConv, self).__init__(inc, outc, use_bn, act_func, dropout_rate, ops_order)
+        super(DilConv, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
     def weight_op(self):
         weight_dict = OrderedDict()
         weight_dict['conv'] = nn.Conv2d(
-            self.inc, self.inc, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding,
+            self.in_channels, self.in_channels, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding,
             dilation=self.dilation, groups=1, bias=self.bias
         )
         return weight_dict
@@ -220,8 +221,8 @@ class DilConv(My2DLayer):
 
 class SepConv(My2DLayer):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  kernel_size,
                  stride,
                  bias=False,
@@ -234,16 +235,16 @@ class SepConv(My2DLayer):
         self.stride = stride
         self.padding = get_padding_size(self.kernel_size, 1)
         self.bias = bias
-        super(SepConv, self).__init__(inc, outc, use_bn, act_func, dropout_rate, ops_order)
+        super(SepConv, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
     def weight_op(self):
 
         weight_dict = OrderedDict()
         weight_dict['dconv'] = nn.Conv2d(
-            self.inc, self.outc, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding,
-            dilation=1, groups=self.inc, bias=False,
+            self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding,
+            dilation=1, groups=self.in_channels, bias=False,
         )
         weight_dict['pconv'] = nn.Conv2d(
-            self.inc, self.outc, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False
+            self.in_channels, self.out_channels, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False
         )
         return weight_dict
 
@@ -272,13 +273,13 @@ class SepConv(My2DLayer):
 
 class Identity(My2DLayer):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  use_bn=False,
                  act_func=None,
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
-        super(Identity, self).__init__(inc, outc, use_bn, act_func, dropout_rate, ops_order)
+        super(Identity, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
         # pay attention to use_bn act_func of Identity Operation
     def weight_op(self):
         return None
@@ -333,25 +334,25 @@ class Zero(MyModule):
 
 class FactorizedReduce(MyModule):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  act='relu',
                  use_bn=True,
                  bias=False,
                  ops_order='act_weight_bn'):
         super(FactorizedReduce, self).__init__()
-        assert outc % 2 == 0, 'FactorizedReduce Layer {} can not be divided by 2'.format(outc)
-        self.inc = inc
-        self.outc = outc
+        assert out_channels % 2 == 0, 'FactorizedReduce Layer {} can not be divided by 2'.format(out_channels)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.bias=bias
         self.ops_order = ops_order
         self.act = act
         self.act_func = build_activation(act, inplace=False)
         # bn after weight_conv by default
         if use_bn:
-            self.bn = nn.BatchNorm2d(outc)
-        self.conv_1 = nn.Conv2d(inc, outc // 2, kernel_size=1, stride=2, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(inc, outc // 2, kernel_size=1, stride=2, padding=0, bias=False)
+            self.bn = nn.BatchNorm2d(out_channels)
+        self.conv_1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
     def forward(self, x):
         x = self.act_func(x)
         out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
@@ -365,8 +366,8 @@ class FactorizedReduce(MyModule):
     def config(self):
         return {
             'name': FactorizedReduce.__name__,
-            'inc': self.inc,
-            'outc': self.outc,
+            'inc': self.in_channels,
+            'outc': self.out_channels,
             'bias': self.bias,
             'act': self.act,
             'ops_order': self.ops_order
@@ -385,15 +386,15 @@ class FactorizedReduce(MyModule):
 
 class FactorizedIncrease(MyModule):
     def __init__(self,
-                 inc,
-                 outc,
+                 in_channels,
+                 out_channels,
                  act='relu',
                  use_bn=True,
                  bias=False,
                  ops_order='act_weight_bn'):
         super(FactorizedIncrease, self).__init__()
-        self.inc = inc
-        self.outc = outc
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.act = act
         self.use_bn = use_bn
         self.bias = bias
@@ -401,9 +402,9 @@ class FactorizedIncrease(MyModule):
 
         self.act_func = build_activation(self.act, inplace=False)
         if self.use_bn:
-            self.bn = nn.BatchNorm2d(self.outc)
+            self.bn = nn.BatchNorm2d(self.out_channels)
         self.upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv = nn.Conv2d(self.inc, outc, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv = nn.Conv2d(self.in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         x = self.upsample_layer(x)
@@ -420,8 +421,8 @@ class FactorizedIncrease(MyModule):
     def config(self):
         return {
             'name': FactorizedIncrease.__name__,
-            'inc': self.inc,
-            'out': self.outc,
+            'inc': self.in_channels,
+            'out': self.out_channels,
             'act_func': self.act,
             'use_bn': self.use_bn,
             'bias': self.bias,
@@ -441,30 +442,30 @@ class FactorizedIncrease(MyModule):
         return False
 
 class ASPP(MyModule):
-    def __init__(self, inc, outc, dilation, nb_classes):
+    def __init__(self, in_channels, out_channels, dilation, nb_classes):
         super(ASPP, self).__init__()
 
         self.nb_classes = nb_classes
         self.dilation = dilation
         self.conv1x1 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(inc, inc, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(inc))
+            ('conv', nn.Conv2d(in_channels, in_channels, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(in_channels))
         ]))
         padding3x3 = get_padding_size(3, dilation)
         self.conv3x3 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(inc, inc, 3, padding=padding3x3, dilation=dilation, bias=False)),
-            ('bn', nn.BatchNorm2d(inc)),
+            ('conv', nn.Conv2d(in_channels, in_channels, 3, padding=padding3x3, dilation=dilation, bias=False)),
+            ('bn', nn.BatchNorm2d(in_channels)),
         ]))
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.gp_conv = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(inc, inc, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(inc))
+            ('conv', nn.Conv2d(in_channels, in_channels, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(in_channels))
         ]))
         self.concat_conv = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(inc * 3, inc, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(inc))
+            ('conv', nn.Conv2d(in_channels * 3, in_channels, 1, bias=False)),
+            ('bn', nn.BatchNorm2d(in_channels))
         ]))
-        self.final_conv = nn.Conv2d(inc, outc, kernel_size=1, bias=False)
+        self.final_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, input):
 
@@ -494,19 +495,19 @@ class ASPP(MyModule):
 
 class MBInvertedConvLayer(MyModule):
     def __init__(self,
-                 inc, outc,
+                 in_channels, out_channels,
                  kernel_size=3, stride=1, expand_ratio=6, mid_channels=None):
         super(MBInvertedConvLayer, self).__init__()
 
-        self.inc = inc
-        self.outc = outc
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.stride = stride
         self.expand_ratio = expand_ratio
         self.mid_channels = mid_channels
 
         if self.mid_channels is None:
-            feature_dim = round(self.inc * self.expand_ratio)
+            feature_dim = round(self.in_channels * self.expand_ratio)
         else:
             feature_dim = self.mid_channels
 
@@ -514,7 +515,7 @@ class MBInvertedConvLayer(MyModule):
             self.inverted_bottleneck = None
         else:
             self.inverted_bottleneck = nn.Sequential(OrderedDict([
-                ('Conv', nn.Conv2d(self.inc, feature_dim, 1, 1, 0, bias=False)),
+                ('conv', nn.Conv2d(self.in_channels, feature_dim, 1, 1, 0, bias=False)),
                 ('bn', nn.BatchNorm2d(feature_dim)),
                 ('act', nn.ReLU6(inplace=False))
             ]))
@@ -522,14 +523,14 @@ class MBInvertedConvLayer(MyModule):
         pad = get_padding_size(self.kernel_size, 1)
 
         self.depth_conv = nn.Sequential(OrderedDict([
-            ('Conv', nn.Conv2d(feature_dim, feature_dim, kernel_size, stride, pad, groups=feature_dim, bias=False)),
+            ('conv', nn.Conv2d(feature_dim, feature_dim, kernel_size, stride, pad, groups=feature_dim, bias=False)),
             ('bn', nn.BatchNorm2d(feature_dim)),
             ('act', nn.ReLU6(inplace=False))
         ]))
 
         self.point_conv = nn.Sequential(OrderedDict([
-            ('Conv', nn.Conv2d(feature_dim, outc, 1, 1, 0, bias=False)),
-            ('bn', nn.BatchNorm2d(outc)),
+            ('conv', nn.Conv2d(feature_dim, out_channels, 1, 1, 0, bias=False)),
+            ('bn', nn.BatchNorm2d(out_channels)),
         ]))
     def forward(self, x):
         if self.inverted_bottleneck:
@@ -546,8 +547,8 @@ class MBInvertedConvLayer(MyModule):
     def config(self):
         return {
             'name': MBInvertedConvLayer.__name__,
-            'in_channels': self.inc,
-            'out_channels': self.outc,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
             'kernel_size': self.kernel_size,
             'stride': self.stride,
             'expand_ratio': self.expand_ratio,
@@ -560,7 +561,7 @@ class MBInvertedConvLayer(MyModule):
     def get_flops(self, x):
         if self.inverted_bottleneck:
             flop1 = count_conv_flop(self.inverted_bottleneck.conv, x)
-            x = self.inverted_bottleneck
+            x = self.inverted_bottleneck(x)
         else:
             flop1 = 0
 
