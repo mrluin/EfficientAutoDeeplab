@@ -731,7 +731,9 @@ class ProxyAutoDeepLab(MyNetwork):
             raise ValueError('invalid scale choice of {}'.format(last_scale))
         return flop_stem1 + flop_stem0 + flop_stem2 + flops + flop_aspp, output
 
+
     def convert_to_normal_net(self):
+        # TODO: this method exist issue, cannot find MixedEdge
         queue = Queue()
         queue.put(self)
         while not queue.empty():
@@ -747,3 +749,41 @@ class ProxyAutoDeepLab(MyNetwork):
                 else:
                     queue.put(child)
         return ProxyAutoDeepLab(self.run_config, self.arch_search_config, self.conv_candidates)
+
+    def cell_arch_decode(self):
+        genes = []
+        def _parse(alphas, steps):
+            gene = []
+            start = 0
+            n = 2  # offset
+            for i in range(steps):
+                end = start + n
+                # all the edge ignore None operation
+                edges = sorted(range(start, end), key=lambda x: -np.max(alphas[x, 1:]))
+                top1edge = edges[0]  # edge index
+                best_op_index = np.argmax(alphas[top1edge])  #
+                gene.append([top1edge, best_op_index])
+                start = end
+                n += 1  # move offset
+
+                # len(gene) related to steps, each step chose one path
+                # shape as [nb_steps, operation_index]
+            return np.array(gene)
+
+        # todo alphas is AP_path_alpha for all the paths in each cell not single node
+        for cell in self.cells:
+            alpha = None
+            for op in cell.ops:  # ops -> MobileInvertedResidual
+                mixededge = op.mobile_inverted_conv
+                assert mixededge.__str__().startswith('MixedEdge'), 'Error in cell_arch_decode'
+                if alpha is None:
+                    alpha = mixededge.AP_path_alpha.data
+                else:
+                    alpha1 = mixededge.AP_path_alpha.data
+                    alpha = np.concatenate([alpha, alpha1], dim=0)
+            gene = _parse(alpha, self.run_config.steps)
+            genes.append(gene)
+            # return genes, select which edge, which operation in each cell
+            # [path_index, operation_index]
+        return np.arrary(genes)
+        # shape as [nb_cells, nb_steps, operation_index]
