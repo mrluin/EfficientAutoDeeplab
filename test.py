@@ -1,14 +1,29 @@
-import torch
 
 
 
 
-log = '123566\t12313466\n' \
-      '123124676\n' \
-      '12314367\n'
-with open('./test.txt', 'w') as fout:
-    fout.write(log)
+class ttclass(object):
+    def __init__(self):
+        super(ttclass, self).__init__()
+
+    @property
+    def module_str(self):
+        raise NotImplementedError
+
+class ttclass_son(ttclass):
+    def __init__(self):
+        super(ttclass_son, self).__init__()
+
+        self.layer = 1
+
+    def module_str(self):
+        return self.layer
 
 
 
-print(log)
+ins = ttclass_son()
+
+print(ins.module_str)
+
+
+print('{}'.format(None))

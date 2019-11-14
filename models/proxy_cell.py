@@ -83,9 +83,10 @@ class Proxy_cell(MyModule):
                         stride=stride, ops_order='act_weight_bn'
                     ))
                     shortcut = Identity(self.outc, self.outc)
-                if conv_op is None and shortcut is None:
-                    inverted_residual_block = None
-                else: inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+                #if conv_op is None and shortcut is None:
+                    #inverted_residual_block = None
+                #else:
+                inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
                 self.ops.append(inverted_residual_block)
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
 
@@ -173,9 +174,9 @@ class Proxy_cell(MyModule):
 
         return flop_preprocess0 + flop_preprocess1 + flops + flop_concat, out
 
-    def module_str(self, prev_prev_c, type):
+    def module_str(self, type):
         log_str = 'ProxyCell:\n'
-        if prev_prev_c:
+        if self.preprocess0 is not None:
             log_str += 'prev_prev_c: '+self.preprocess0.module_str+'\n'
         if type == 'reduction':
             log_str += 'prev_c_reduce: '+self.preprocess1_down.module_str+'\t'
@@ -185,12 +186,10 @@ class Proxy_cell(MyModule):
             log_str += 'prev_c_up: '+self.preprocess1_up.module_str+'\t'
         # each edge: mixed_operation -> get_module_str
         for index, op in enumerate(self.ops):
-            if op is None:
-                continue
-            else:
-                frag_log_str = '(path{})'.format(index) + op.module_str() + '\n'
-                log_str += frag_log_str
-        final_log = self.final_conv1x1.module_str
+            # op is MBConvResidualBlock
+            frag_log_str = '(path{})'.format(index) + op.module_str() + '\n'
+            log_str += frag_log_str
+        final_log = 'Cell Final Conv:'+self.final_conv1x1.module_str+'\n'
         log_str += final_log
         return log_str
 

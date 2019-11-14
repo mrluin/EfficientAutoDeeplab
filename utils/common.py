@@ -125,7 +125,7 @@ def count_conv_flop(layer, x):
 def count_normal_conv_flop(layer, x):
     out_h = int(x.size()[2] / layer.stride[0])
     out_w = int(x.size()[3] / layer.stride[1])
-    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size * layer.kernel_size * \
+    delta_ops = layer.in_channels * layer.out_channels * layer.kernel_size[0] * layer.kernel_size[1] * \
                 out_h * out_w / layer.groups
     return delta_ops
 
@@ -161,6 +161,48 @@ def get_list_index(layer, scale):
         return 5+scale
     elif layer >= 3:
         return 4*(layer-3)+9+scale
+
+def get_list_index_split(layer, current_scale, next_scale):
+    if layer == 0:
+        return next_scale - current_scale
+    elif layer == 1:
+        base = 2
+        if current_scale == 0:
+            return base + next_scale - current_scale
+        elif current_scale == 1:
+            if next_scale - current_scale == -1:
+                return base + 2 + (current_scale - 1)*3
+            elif next_scale - current_scale == 0:
+                return base + 2 + (current_scale - 1)*3 + 1
+            else:
+                return base + 2 + (current_scale - 1)*3 + 2
+    elif layer == 2:
+        base = 7
+        if current_scale == 0:
+            return base + (next_scale - current_scale)
+        elif current_scale == 1 or current_scale == 2:
+            if next_scale - current_scale == -1:
+                return base + 2 + (current_scale - 1)*3
+            elif next_scale - current_scale == 0:
+                return base + 2 + (current_scale - 1)*3 + 1
+            elif next_scale - current_scale == 1:
+                return base + 2 + (current_scale - 1)*3 + 2
+    else:
+        base = 15 + (layer - 3) * 10
+        if current_scale == 0:
+            return base + (next_scale - current_scale)
+        elif current_scale == 1 or current_scale == 2:
+            if next_scale - current_scale == 0:
+                return base + 2 + (current_scale - 1)*3 + 1
+            elif next_scale - current_scale == 1:
+                return base + 2 + (current_scale - 1)*3 + 2
+            elif next_scale - current_scale == -1:
+                return base + 2 + (current_scale - 1)*3
+        elif current_scale == 3:
+            if next_scale - current_scale == 0:
+                return base + 2 + (current_scale - 1)*3 + 1
+            elif next_scale - current_scale == -1:
+                return base + 2 + (current_scale - 1)*3
 
 def get_prev_c(intermediate_features, scale):
     # scale is next scale

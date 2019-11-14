@@ -6,7 +6,7 @@ from genotype import PRIMITIVES
 
 from run_manager import *
 
-#__all__ = ['Cell', 'Split_Cell']
+__all__ = ['Cell', 'Split_Cell']
 
 class Cell(MyModule):
     def __init__(self,
@@ -142,6 +142,7 @@ class Split_Cell(MyModule):
 
         self.ops = nn.ModuleList()
 
+        self.preprocess0 = None
         if prev_prev_c is not None:
             self.preprocess0 = ConvLayer(prev_prev_c, self.outc, 1, 1, bias=False)
 
@@ -169,17 +170,19 @@ class Split_Cell(MyModule):
             for j in range(i+2):
                 stride = 1
                 if self.prev_prev_c is None and j == 0: # the first mixededge related to prev_prev_cell
-                    op = None
+                    conv_op = None
+                    shortcut = None
                 else:
                     # skip connection: Identity
                     # None: Zero
-                    op = MixedEdge(build_candidate_ops(
+                    conv_op = MixedEdge(build_candidate_ops(
                         self.conv_candidates,
                         in_channels=self.outc, out_channels=self.outc,
                         stride=stride, ops_order='act_weight_bn'
                     ))
-                self.ops.append(op)
-
+                    shortcut = Identity(self.outc, self.outc)
+                inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+                self.ops.append(inverted_residual_block)
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
 
     def forward(self, s0, s1):
@@ -204,7 +207,43 @@ class Split_Cell(MyModule):
         concat_feature = torch.cat([states[-self.block_multiplier:]], dim=1)
         return self.final_conv1x1(concat_feature)
 
+    def get_flops(self, prev_prev_c, prev_c):
+        prev_prev_out = None
+        flop_preprocess0 = 0.
+        if self.preprocess0 is not None:
+            flop_preprocess0, prev_prev_out = self.preprocess0.get_flops(prev_prev_c)
+        flop_preprocess1, prev_out = self.preprocess1.get_flops(prev_c)
+        states = [prev_prev_out, prev_out]
+        offset = 0
+        flops = 0.
+        for i in range(self.steps):
+            new_states = []
+            for index, hidden_states in enumerate(states):
+                branch_index = offset + index
+                if hidden_states is None or self.ops[branch_index] is None:
+                    continue
+                frag_flops, new_state = self.ops[branch_index].get_flops(hidden_states)
+                flops = flops + frag_flops
+                new_states.append(new_state)
+            s = sum(new_states)
+            offset += len(states)
+            states.append(s)
 
+        concat_features = torch.concat([states[-self.steps:]], dim=-1)
+        flops_concat, out = count_conv_flop(self.final_conv1x1, concat_features)
 
+        return flop_preprocess0 + flop_preprocess1 + flops + flops_concat, out
+
+    def module_str(self, prev_prev_c, type):
+        log_str = 'ProxySplitCell:\n'
+        if self.preprocess0 is not None:
+            log_str += 'prev_prev_c: '+self.preprocess0.module_str+'\n'
+        log_str += 'prev_c: '+self.preprocess1.module_str+'\n'
+        for index, op in enumerate(self.ops):
+            frag_log_str = '(path {})'.format(index)+op.module_str()+'\n'
+            log_str += frag_log_str
+        final_log = 'Cell Final Conv: '+self.final_conv1x1.module_str+'\n'
+        log_str += final_log
+        return log_str
 
 

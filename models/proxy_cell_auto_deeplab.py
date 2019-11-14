@@ -679,13 +679,13 @@ class ProxyAutoDeepLab(MyNetwork):
 
         last_scale = best_result[-1][1]
         if last_scale == 0:
-            log_str += 'Final. {}'.format(self.aspp4.module_str())
+            log_str += 'Final:\t{}\n'.format(self.aspp4.module_str())
         elif last_scale == 1:
-            log_str += 'Final. {}'.format(self.aspp8.module_str())
+            log_str += 'Final:\t{}\n'.format(self.aspp8.module_str())
         elif last_scale == 2:
-            log_str += 'Final. {}'.format(self.aspp16.module_str())
+            log_str += 'Final:\t{}\n'.format(self.aspp16.module_str())
         elif last_scale == 3:
-            log_str += 'Final. {}'.format(self.aspp32.module_str())
+            log_str += 'Final:\t{}\n'.format(self.aspp32.module_str())
         return log_str
 
     def get_flops(self, x):
@@ -695,10 +695,14 @@ class ProxyAutoDeepLab(MyNetwork):
         best_result = self.decode_network() # [(scale, next_scale)] * 12 network path level
         assert len(best_result) == self.run_config.nb_layers, 'Error in self.net.decode_network'
         flops = 0.
-        flop_stems = count_normal_conv_flop(self.stem0.conv, x) + count_normal_conv_flop(self.stem1.conv, x) + count_normal_conv_flop(self.stem2.conv, x)
+        flop_stem0 = count_normal_conv_flop(self.stem0.conv, x)
         x = self.stem0(x)
+        flop_stem1 = count_normal_conv_flop(self.stem1.conv, x)
         x = self.stem1(x)
+        flop_stem2 = count_normal_conv_flop(self.stem2.conv, x)
         x = self.stem2(x)
+
+
         inter_features = [[0, None], [0, x]] # save prev_prev_output and prev_output
         for layer in range(self.nb_layers):
             current_scale = best_result[layer][0]
@@ -725,7 +729,7 @@ class ProxyAutoDeepLab(MyNetwork):
             flop_aspp, output = self.aspp32.get_flops(inter_features[-1][1])
         else:
             raise ValueError('invalid scale choice of {}'.format(last_scale))
-        return flop_stems + flops + flop_aspp
+        return flop_stem1 + flop_stem0 + flop_stem2 + flops + flop_aspp
 
     def convert_to_normal_net(self):
         queue = Queue()
