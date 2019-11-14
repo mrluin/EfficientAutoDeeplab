@@ -6,8 +6,11 @@ import numpy as np
 from modules.operations import *
 from modules.my_modules import *
 from utils.common import *
-
+from modules.mixed_op import *
 # get cell_arch and network_arch
+
+# based on proxy_cell_auto_deeplab
+# TODO: have some modification on split_cell_auto_deeplab
 
 class SplitCell(MyModule):
     def __init__(self,
@@ -17,7 +20,13 @@ class SplitCell(MyModule):
                  args):
         super(SplitCell, self).__init__()
 
-        self.cell_arch = cell_arch
+        # prev_prev_scale -> prev_scale -> next_scale
+        # prev_scale is current_scale
+        self.cell_index = get_list_index(layer, prev_scale)
+
+        self.cell_arch = cell_arch[self.cell_index]
+        # shape as [steps, operation_index], each node have only one path
+
         self.network_arch = network_arch
         self.args = args
         # prev_prev_scale -> prev_scale -> next_scale
@@ -52,17 +61,44 @@ class SplitCell(MyModule):
 
         self.steps = steps
         self.ops = nn.ModuleList()
+        self.candidate_ops = args.conv_candidates
 
-        for x in self.cell_arch:
+        for x in self.cell_arch: # x is [path_index, operation_index]
+            # operation_index x[1]
+            op = MixedEdge(build_candidate_ops(self.candidate_ops[x[1]], self.out_channels, self.out_channels,
+                                               stride=1, ops_order='act_weight_bn'))
+            self.ops.append(op)
 
             # TODO: cell architecture decode, and build cell according to derived PRIMITIVES
-
+        self.finalconv1x1 = nn.Conv2d(self.steps * self.out_channels, 1, 1, 0, bias=False)
     def forward(self, prev_prev_c ,prev_c):
-        s0 = prev_prev_c
-        s1 = prev_c
+        s0 = self.preprocess0(prev_prev_c)
+        s1 = self.preprocess1(prev_c)
 
-        # TODO: cell forward
-
+        states = [s0, s1]
+        offset = 0
+        ops_index= 0
+        for i in range(self.steps):
+            new_states = []
+            for j, h in enumerate(states):
+                branch_index = offset + j
+                if branch_index in self.cell_arch[:, 0]: # self.cell_arch shape as [select_edge_nb, operation_index]
+                   # self.cell_arch[:, 0] means all the selected paths, the current branch is selected
+                   # TODO: Does this case exist?
+                   # TODO: In this case, prev_prev_c always exists
+                    if prev_prev_c is None and j == 0: # the first edge, related to prev_prev_cell
+                        ops_index += 1
+                        continue
+                    # if the path is select, current path index and its related operation is append in self.ops ordered
+                    new_state = self.ops[ops_index](h)
+                    new_states.append(new_state)
+                    ops_index += 1
+            s = sum(new_states)
+            offset += len(states)
+            states.append(s)
+        concat_feature = torch.cat([states[-self.steps:]], dim=1)
+        out = self.finalconv1x1(concat_feature)
+        return out
 
 class NewNetwork(MyNetwork):
     def __init__(self, network_arch, cell_arch,
@@ -100,6 +136,7 @@ class NewNetwork(MyNetwork):
         # prev_scale is current layer scale, w.r.t. next's prev
         # prev_prev_scale is previous layer scale, w.r.t. next's prev_prev
 
+        # TODO: in the case, prev_prev_c can be output of stem1 and stem2
         prev_prev_scale = 0
         prev_scale = 0
         for i in range(self.nb_layers):
@@ -130,30 +167,22 @@ class NewNetwork(MyNetwork):
             self.cells += [_cell]
 
     def forward(self, x):
-        stem = self.stem0(x)
-        stem0 = self.stem1(stem)
-        stem1 = self.stem2(stem0)
+        inter_features = []
+        x = self.stem0(x)
+        x = self.stem1(x)
+        inter_features.append(x)
+        x = self.stem2(x)
+        inter_features.append(x)
 
-        inter_features = [stem0, stem1]
         for i in range(self.nb_layers):
-
-
-
-
-        # TODO: construct cell and network route, according to network_arch and cell_arch
-
-
-        '''
-        # network_arch and cell_arch
-        
-        network_arch, cell_arch, and network_path
-        
-        
-        network_arch :: network_layer_to_space()
-        cell_arch
-        network_path :: len()=12
-        '''
-
+            output = self.cells[i](inter_features[-2], inter_features[-1])
+            inter_features.pop()
+            inter_features.append(output)
+            if i == 2:
+                low_level_feature = inter_features[-1]
+        output = inter_features[-1]
+        # low_level_feature like deeplabv3
+        return output, low_level_feature
 
 def network_layer_to_space(net_arch):
     # net_arch = [1, 0, 0, 1, 2, 1, 2, 2, 3, 3, 2, 1]
@@ -187,7 +216,6 @@ def network_layer_to_space(net_arch):
             space1[0][scale][sample] = 1
             space = np.concatenate([space, space1], axis=0)
             prev = scale
-
     return space
 
 def genotype_decode(net):
@@ -228,20 +256,12 @@ def genotype_decode(net):
     '''
     # under the case of get cell gene[]
     '''
-    def _parse(alphas, steps):
-        gene = []
-        start = 0
-        n = 2 # offset
-        for i in range(steps):
-            end = start + n
-            # all the edge ignore None operation
-            edges = sorted(range(start, end), key=lambda x:-np.max(alphas[x, 1:]))
-            top1edge = edges[0] # edge index
-            best_op_index = np.argmax(alphas[top1edge]) #
-            gene.append([top1edge, best_op_index])
-            start = end
-            n += 1 # move offset
-        return np.array(gene)
+
+
+
+
+
+
 
     # TODO: apply _parse to each cell in super_network
     '''
