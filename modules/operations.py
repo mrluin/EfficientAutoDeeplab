@@ -341,9 +341,10 @@ class FactorizedReduce(MyModule):
                  bias=False,
                  ops_order='act_weight_bn'):
         super(FactorizedReduce, self).__init__()
-        assert out_channels % 2 == 0, 'FactorizedReduce Layer {} can not be divided by 2'.format(out_channels)
+
         self.in_channels = in_channels
         self.out_channels = out_channels
+        assert out_channels % 2 == 0, 'FactorizedReduce Layer {} can not be divided by 2'.format(self.out_channels)
         self.bias=bias
         self.ops_order = ops_order
         self.act = act
@@ -539,6 +540,7 @@ class MBInvertedConvLayer(MyModule):
         x = self.point_conv(x)
         return x
 
+    # TODO: remove @property
     @property
     def module_str(self):
         return '{}x{}_MBConv{}'.format(self.kernel_size, self.kernel_size, self.expand_ratio)
@@ -593,7 +595,6 @@ class MobileInvertedResidualBlock(MyModule):
             skip_x = self.shortcut(x)
             res = skip_x + conv_x
         return res
-
 
     def module_str(self):
         # self.mobile_inverted_conv is MixedOperation

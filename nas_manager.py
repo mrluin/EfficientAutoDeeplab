@@ -13,6 +13,7 @@ from utils.metrics import Evaluator
 from modules.mixed_op import *
 from utils.common import count_parameters
 from utils.common import get_list_index
+from models.new_model import NewNetwork
 
 '''
 # ArchSearchConfig: architecture parameter init and optimizer
@@ -379,9 +380,11 @@ class ArchSearchRunManager:
     def train(self, fix_net_weights=False):
         data_loader = self.run_manager.run_config.train_loader
         iter_per_epoch = len(data_loader)
+        arch_update_flag = 0
         if fix_net_weights:
             data_loader = [(0, 0)] * iter_per_epoch
-
+            print('Train Phase close for debug')
+            arch_update_flag = 0
         arch_param_num = len(list(self.net.architecture_parameters()))
         binary_gates_num = len(list(self.net.binary_gates()))
         weight_param_num = len(list(self.net.weight_parameters()))
@@ -417,6 +420,7 @@ class ArchSearchRunManager:
                 # TODO: network entropy
 
                 # train network weight parameter if not fix_net_weights
+
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -457,39 +461,66 @@ class ArchSearchRunManager:
                     self.run_manager.optimizer.step()
                     self.net.unused_modules_back()
 
-                # TODO: skip arch_param update in the first epoch
-                if epoch > 0:
-                    for j in range(update_schedule.get(i, 0)): # step i update arch_param times
-                        start_time = time.time()
-                        if isinstance(self.arch_search_config, GradientArchSearchConfig):
-                            # target_hardware is None, exp_value is None by default
-                            time_log, arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
-                            if i % self.run_manager.run_config.print_arch_param_step_freq == 0 or i + 1 == iter_per_epoch:
-                                used_time = time.time() - start_time
-                                # current architecture information
-                                # performance and flops
-                                log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\n' \
-                                          'Loss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n'\
-                                    .format(epoch+1, i, used_time, arch_loss, arch_acc, arch_miou, arch_fscore)
+                    # TODO: confirm the correct place of batch_time
+                    batch_time.update(time.time() - end)
+                    end = time.time()
 
-                                self.run_manager.write_log(log_str+time_log, prefix='gradient_search', should_print=True)
+                    # training log per print_freq
+                    if i % self.run_manager.run_config.print_freq == 0 or i + 1 == iter_per_epoch:
+                        batch_log = 'Train\t[{0}][{1}/{2}]\tlr {lr:.5f}\n' \
+                                    'Time\t{batch_time.val:.3f}\t({batch_time.avg:.3f})\n' \
+                                    'Data\t{data_time.val:.3f}\t({data_time.avg:.3f})\n' \
+                                    'Loss\t{losses.val:6.4f}\t({losses.avg:6.4f})\n' \
+                                    'Acc\t{accs.val:6.4f}\t({accs.avg:6.4f})\n' \
+                                    'MIoU\t{mious.val:6.4f}\t({mious.avg:6.4f})\n' \
+                                    'F\t{fscores.val:6.4f}\t({fscores.avg:6.4f})\n'.format(
+                            epoch + 1, i, iter_per_epoch, lr=lr, batch_time=batch_time, data_time=data_time,
+                            losses=losses, accs=accs, mious=mious, fscores=fscores
+                        )
+                        self.run_manager.write_log(batch_log, 'train', should_print=True)
+
+                # TODO: skip arch_param update in the first epoch
+                if epoch >= 0:
+                    if not fix_net_weights:
+                        for j in range(update_schedule.get(i, 0)): # step i update arch_param times
+                            start_time = time.time()
+                            if isinstance(self.arch_search_config, GradientArchSearchConfig):
+                                # target_hardware is None, exp_value is None by default
+                                time_log, arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
+                                if i % self.run_manager.run_config.print_arch_param_step_freq == 0 or i + 1 == iter_per_epoch:
+                                    used_time = time.time() - start_time
+                                    # current architecture information
+                                    # performance and flops
+                                    log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\n' \
+                                              'Loss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n'\
+                                        .format(epoch+1, i, used_time, arch_loss, arch_acc, arch_miou, arch_fscore)
+
+                                    self.run_manager.write_log(log_str+time_log, prefix='gradient_search', should_print=True)
+                            else:
+                                raise ValueError('do not support version {}'.format(type(self.arch_search_config)))
+                    else:
+                        if arch_update_flag == 0:
+                            for j in range(update_schedule.get(i, 0)):  # step i update arch_param times
+                                start_time = time.time()
+                                if isinstance(self.arch_search_config, GradientArchSearchConfig):
+                                    # target_hardware is None, exp_value is None by default
+                                    time_log, arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
+                                    if i % self.run_manager.run_config.print_arch_param_step_freq == 0 or i + 1 == iter_per_epoch:
+                                        used_time = time.time() - start_time
+                                        # current architecture information
+                                        # performance and flops
+                                        log_str = 'Architecture\t[{}-{}]\tTime\t{:.4f}\n' \
+                                                  'Loss\t{:.6f}\tAcc\t{:6.4f}\tMIoU\t{:6.4f}\tFscore\t{:6.4f}\n' \
+                                            .format(epoch + 1, i, used_time, arch_loss, arch_acc, arch_miou,
+                                                    arch_fscore)
+
+                                        self.run_manager.write_log(log_str + time_log, prefix='gradient_search',
+                                                                   should_print=True)
+                                else:
+                                    raise ValueError('do not support version {}'.format(type(self.arch_search_config)))
+                            arch_update_flag = 1
                         else:
-                            raise ValueError('do not support version {}'.format(type(self.arch_search_config)))
-                batch_time.update(time.time() - end)
-                end = time.time()
-                # training log per print_freq
-                if i % self.run_manager.run_config.print_freq == 0 or i + 1 == iter_per_epoch:
-                    batch_log = 'Train\t[{0}][{1}/{2}]\tlr {lr:.5f}\n' \
-                                'Time\t{batch_time.val:.3f}\t({batch_time.avg:.3f})\n' \
-                                'Data\t{data_time.val:.3f}\t({data_time.avg:.3f})\n' \
-                                'Loss\t{losses.val:6.4f}\t({losses.avg:6.4f})\n' \
-                                'Acc\t{accs.val:6.4f}\t({accs.avg:6.4f})\n' \
-                                'MIoU\t{mious.val:6.4f}\t({mious.avg:6.4f})\n' \
-                                'F\t{fscores.val:6.4f}\t({fscores.avg:6.4f})\n'.format(
-                        epoch+1, i, iter_per_epoch, lr=lr, batch_time=batch_time, data_time=data_time,
-                        losses=losses, accs=accs, mious=mious, fscores=fscores
-                    )
-                    self.run_manager.write_log(batch_log, 'train', should_print=True)
+                            continue
 
             # print_save_arch_information
             if self.run_manager.run_config.print_save_arch_information:
@@ -505,12 +536,15 @@ class ArchSearchRunManager:
 
                 val_monitor_metric = get_monitor_metric(self.run_manager.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
                 self.run_manager.best_monitor = max(self.run_manager.best_monitor, val_monitor_metric)
-
-                val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
-                          'Train\tLoss{loss.avg:.6f}\tAcc{accs.avg:6.4f}\tMIoU{mious.avg:6.4f}\tFscore{fscores.avg:6.4f}\n'.format(
-                    epoch+1, self.run_manager.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore,
-                    loss=losses, accs=accs, mious=mious, fscores=fscores
-                )
+                if not fix_net_weights:
+                    val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
+                              'Train\tLoss{loss.avg:.6f}\tAcc{accs.avg:6.4f}\tMIoU{mious.avg:6.4f}\tFscore{fscores.avg:6.4f}\n'.format(
+                        epoch+1, self.run_manager.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore,
+                        loss=losses, accs=accs, mious=mious, fscores=fscores
+                    )
+                else:
+                    val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
+                              .format(epoch + 1, self.run_manager.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore,)
                 self.run_manager.write_log(val_log, 'valid', should_print=True)
             # save_ckpt_freq
             if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
@@ -524,18 +558,71 @@ class ArchSearchRunManager:
         # after training phase
         if self.run_manager.run_config.save_normal_net_after_training:
 
-            # obtain normal cells
-            normal_net = self.net.cpu().convert_to_normal_net()
-            # TODO: network level need split cells
-            logging.info('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
+            # get cell_arch_info and network_arch_info from genotype decode and viterbi_decode
+            # construct cells and network, according to cell_arch_info and network_arch_info
+            # obtain the whole network
+            actual_path, network_space = self.net.viterbi_decode()
+            cell_arch = self.net.cell_arch_decode()
+            print(cell_arch.shape) # shape as [45, 1, 2] i.e. nb_cells, nb_nodes, chosen_edge_index, chosen_operation
+            print('cell arch:\n', cell_arch)
 
+
+            # obtain new_auto_deeplab
+            normal_net = NewNetwork(network_space, cell_arch, self.run_manager.run_config.filter_multiplier,
+                                    self.run_manager.run_config.block_multiplier, self.run_manager.run_config.steps,
+                                    self.run_manager.run_config.nb_layers, self.run_manager.run_config.nb_classes,
+                                    init_channels=128, conv_candidates=self.run_manager.run_config.conv_candidates)
+            # TODO: device
+            print(normal_net.device)
+            print('normal_net construct completely!')
+            print('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
+            # TODO: fix issues in convert_to_normal_net()
+            # TODO: network level need split cells
+            # obtain normal cells
+            # normal_net = self.net.cpu().convert_to_normal_net()
+
+            # directory of network configs
             os.makedirs(os.path.join(self.run_manager.path, 'learned_net'), exist_ok=True)
+
+            # TODO: get_network_config,
+            # layer scale cell, selected edge_index, chosen operation.
+            def get_network_config(cell_arch, actual_path):
+                config_log = 'Network-Level and Cell-Level Configs\n'
+                config_log += 'Stem0, Stem1\n'
+                config_log += 'Layer0 Scale0 {}\n'.format('stem2')
+                for i in range(self.run_manager.run_config.nb_layers):
+                    next_scale = actual_path[i] # the next_scale
+                    config_log += 'Layer{} Scale{} Cell:\n'.format(i+1, next_scale)
+                    # TODO, get cell_index, related to cell type, split cell or proxy cell
+                    cell_index = get_list_index(i, next_scale)
+                    _cell_arch = cell_arch[cell_index] # [steps, chosen_edge_index, chosen_operation_index]
+                    for x in _cell_arch:
+                        config_log += '\tEdge {}, {}\n'.format(x[0], self.run_manager.run_config.conv_candidates[x[1]])
+
+                last_scale = actual_path[-1]
+                if last_scale == 0:
+                    config_log += 'aspp4'
+                elif last_scale == 1:
+                    config_log += 'aspp8'
+                elif last_scale == 2:
+                    config_log += 'aspp16'
+                elif last_scale == 3:
+                    config_log += 'aspp32'
+                else:
+                    raise ValueError('invalid last_scale {}'.format(last_scale))
+
+                return config_log
+
+            # TODO: test config_log
+
             json.dump(normal_net.config, open(os.path.join(self.run_manager.path, 'learned_net/net.config'), 'w'), indent=4)
+            # done
             json.dump(
                 self.run_manager.run_config.config,
                 open(os.path.join(self.run_manager.path, 'learned_net/run.config'), 'w'),
                 indent=4
             )
+            # done
             torch.save(
                 {'state_dict': normal_net.state_dict(),
                  'dataset': self.run_manager.run_config.dataset},

@@ -14,6 +14,7 @@ from nas_manager import *
 from utils.common import save_inter_tensor, get_cell_decode_type, get_list_index_split
 from utils.common import get_next_scale, get_list_index, get_prev_c
 from collections import OrderedDict
+from models.new_model import network_layer_to_space
 
 class SplitFabricAutoDeepLab(MyNetwork):
     MODE = None
@@ -31,16 +32,17 @@ class SplitFabricAutoDeepLab(MyNetwork):
         self.nb_layers = self.run_config.nb_layers
         self.nb_classes = self.run_config.nb_classes
 
-
         # network level parameter and binary_gates
         self.fabric_path_alpha = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
         self.fabric_path_wb = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
-
 
         # TODO: active_index and inactive_index should not be list, but tensors
         # and list_index is calculate by layer and scales
         self.active_index = torch.zeros(self.nb_layers, 4, 1) # active_index always only has one path
         self.inactive_index = None # inactive_index.shape is not fixed, 'two' mode is one and other mode are two
+        self.tmp_active_alphas = None
+        self.tmp_inactive_alphas = None
+
 
         # something like mixed operation
         self.log_prob = None
@@ -174,6 +176,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     @property
     def n_choices(self):
+        # path choices
         return 3
 
     @property
@@ -192,12 +195,14 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     @property
     def random_index(self):
-        # TODO: here can not perform random index, related to spatial size
+        # cannot perform random index for each node in fabric, the nodes should have spatial wise relationship.
         active_index = np.zeros((self.nb_layers, 4, 1))
         random_result = []
         last = 0
         layer = 0
         def random_dfs(layer, random_result, last):
+            nonlocal random_result
+            nonlocal active_index
             if layer == 0:
                 scale = 0
                 if last == scale:
@@ -287,7 +292,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         # binarize should apply on each node in fabric, should apply to the whole fabric
         # network, rather than each node separable
         self.log_prob = None
-        probs = self.probs_over_paths  # shape as [12, 4, 3]
+        probs = self.probs_over_paths.data  # shape as [12, 4, 3]
         self.fabric_path_wb.data.zero_()
         self.current_prob_over_paths = torch.zeros_like(probs)
 
@@ -392,61 +397,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
                 if last_scale == scale:
                     last_scale = _binarize(layer, scale)
                     continue
-        '''
-        # TODO: consider the relationship between layers
-        if SplitFabricAutoDeepLab.MODE == 'two':
-            probs = probs.data.view(-1, 3)
-            sample_path = torch.multinomial(probs, 2, replacement=False) # multinomial with 2d tensor weight
-            sample_path = sample_path.view(self.nb_layers, 4, 2) # [12, 4, 2]
-            probs_slice = F.softmax(torch.gather(self.fabric_path_alpha, -1, sample_path), -1) # softmax on chosen two paths
-            self.current_prob_over_paths = torch.zeros_like(probs) # [12, 4, 3]
 
-            for l in range(self.nb_layers):
-                for s in range(4):
-                    tmp_index = sample_path[l][s]
-                    # probs_slice [12, 4, 2]
-                    self.current_prob_over_paths[l][s][tmp_index] = probs_slice[l][s]
-
-            # get one path from total two
-            c = torch.multinomial(probs_slice.view(-1, 2), 1)[0] # c.shape [self.nb_layers * 4, 1]
-            c = c.view(self.nb_layers, 4, 1) # [12, 4, 1]
-            active_op = torch.gather(sample_path, -1, c) # select [12, 4, 1] from [12, 4, 2]
-            inactive_op = torch.gather(sample_path, -1, 1-c) #
-            self.active_index = active_op
-            self.inactive_index = inactive_op
-            for l in range(self.nb_layers):
-                for s in range(4):
-                    tmp_index = active_op[l][s]
-                    self.fabric_path_wb.data[l][s][tmp_index] = 1.0
-        else:
-            self.inactive_index = torch.zeros(self.nb_layers, 4, 2)
-            sample_path = torch.multinomial(probs.data.view(-1, 3), 1)
-            sample_path = sample_path.view(self.nb_layers, 4, 1) # shape as [12, 4, 1]
-            self.active_index = sample_path
-            for l in range(self.nb_layers):
-                for s in range(4):
-                    self.inactive_index[l][s] = torch.from_numpy(np.array([_i for _i in range(0, sample_path[l][s][0])] + \
-                                                                          [_i for _i in range(sample_path[l][s][0]+1, self.n_choices)]))
-
-            self.log_prob = torch.log(torch.gather(probs.data, -1, sample_path)) # log prob of the sampled path
-            self.current_prob_over_paths = probs
-            self.fabric_path_wb.data[sample_path] = 1.0
-            for l in range(self.nb_layers):
-                for s in range(4):
-                    tmp_index = sample_path[l][s][0]
-                    self.fabric_path_wb.data[l][s][tmp_index] = 1.0
-                    '''
         # TODO: avoid over-regularization
 
     def set_fabric_arch_param_grad(self):
         # confirmed
+        # calculate gradient of network_arch_alpha based on gradients of binary gates
         fabric_binary_grads = self.fabric_path_wb.grad.data # shape as [12, 4, 3]
         if self.fabric_path_alpha.grad is None:
             self.fabric_path_alpha.grad = torch.zeros_like(self.fabric_path_alpha.data)
 
         if SplitFabricAutoDeepLab.MODE == 'two':
-            involved_idx = torch.concat([self.active_index, self.inactive_index], dim=-1) # [12, 4, 1] concat [12, 4, 1]
-            probs_slice = F.softmax(torch.gather(self.fabric_path_alpha, -1, involved_idx), -1) # shape [12, 4, 2]
+            # [12, 4, 1] concat [12, 4, 1] = [12, 4, 2]
+            involved_idx = torch.concat([self.active_index, self.inactive_index], dim=-1)
+            # shape [12, 4, 2]
+            probs_slice = F.softmax(torch.gather(self.fabric_path_alpha, -1, involved_idx), -1)
             for l in range(self.nb_layers):
                 for s in range(4):
                     # compute for each node in fabric
@@ -459,7 +424,8 @@ class SplitFabricAutoDeepLab(MyNetwork):
             # TODO: set tuple, index, alpha for rescale
             # set_grad -> optimizer -> if two rescale
             # saving current grad
-            self.tmp_active_alphas = torch.gather(self.fabric_path_alpha, -1, self.active_index) # shape as [12, 4, 1]
+            # shape as [12, 4, 1]
+            self.tmp_active_alphas = torch.gather(self.fabric_path_alpha, -1, self.active_index)
             self.tmp_inactive_alphas = torch.gather(self.fabric_path_alpha, -1, self.inactive_index) # shape as [12, 4, 1]
         else:
             probs = self.probs_over_paths.data
@@ -480,7 +446,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         offset = None # shape as [self.nb_layers, 4, 1]
         for l in range(self.nb_layers):
             for s in range(4):
-                offset[l][s] = math.log(sum([math.exp(alpha) for alpha in new_alphas[l][s]]) / sum([math.exp(alpha) for alpha in old_alphas[l][s]]))
+                offset[l][s][0] = math.log(sum([math.exp(alpha) for alpha in new_alphas[l][s]]) / sum([math.exp(alpha) for alpha in old_alphas[l][s]]))
 
         for l in range(self.nb_layers):
             for s in range(4):
@@ -507,6 +473,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         def _forward(layer, scale, base, prev_c, prev_prev_c):
             if SplitFabricAutoDeepLab.MODE == 'full' or SplitFabricAutoDeepLab.MODE == 'two':
                 output = 0
+                # cells have been appended in ordered
                 for _i in self.active_index[layer][scale]:
                     output_i = self.cells[base+_i](prev_prev_c, prev_c)
                     output = output + self.fabric_path_wb[layer][scale][_i] * output_i
@@ -539,13 +506,14 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     backward_function(self.cells, self.active_index[layer][scale][0], self.fabric_path_wb)
                 )
             else:
+                # for None
                 output = self.cells[base+self.active_index[layer][scale][0]](x)
             return output
 
         scale = 0
         prev_prev_c = None
         prev_c = x
-        intermediate_result.append([0, prev_prev_c]) # append prev_prev_c
+        intermediate_result.append([-1, prev_prev_c]) # append prev_prev_c
         intermediate_result.append([0, prev_c]) # append prev_c
         for layer in range(self.nb_layers):
             if layer == 0:
@@ -722,16 +690,18 @@ class SplitFabricAutoDeepLab(MyNetwork):
                         intermediate_result.pop()
                         intermediate_result.append([scale, inter_feature])
 
-        scale = intermediate_result[-1][0]
-        aspp = None
-        if scale == 0:
+        last_scale = intermediate_result[-1][0]
+
+        if last_scale == 0:
             aspp = self.aspp4(intermediate_result[-1][1])
-        elif scale == 1:
+        elif last_scale == 1:
             aspp = self.aspp8(intermediate_result[-1][1])
-        elif scale == 2:
+        elif last_scale == 2:
             aspp = self.aspp16(intermediate_result[-1][1])
-        elif scale == 3:
+        elif last_scale == 3:
             aspp = self.aspp32(intermediate_result[-1][1])
+        else:
+            raise ValueError('do not support last_scale {}'.format(last_scale))
 
         aspp = F.interpolate(aspp, size=size, mode='bilinear', align_corners=True)
         return aspp
@@ -750,7 +720,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     max_prop = curr_value
                 return
             if layer == 0:
-                print('begin layer 0')
+                #print('begin layer 0')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -758,15 +728,15 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
             elif layer == 1:
-                print('begin layer 1')
+                #print('begin layer 1')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -774,13 +744,13 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -788,21 +758,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
             elif layer == 2:
-                print('begin layer 2')
+                #print('begin layer 2')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -810,13 +780,13 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
 
@@ -825,21 +795,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
 
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
 
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
                 scale = 2
                 if last == scale:
 
@@ -848,24 +818,24 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end2-1')
+                    #print('end2-1')
 
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end2-2')
+                    #print('end2-2')
 
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end2-3')
+                    #print('end2-3')
 
             else:
-                print('begin layer {}'.format(layer))
+                #print('begin layer {}'.format(layer))
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -873,14 +843,14 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
 
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -888,21 +858,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
 
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
 
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
 
                 scale = 2
                 if last == scale:
@@ -912,21 +882,21 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end2-1')
+                    #print('end2-1')
 
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end2-2')
+                    #print('end2-2')
 
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end2-3')
+                    #print('end2-3')
                 scale = 3
                 if last == scale:
 
@@ -935,14 +905,14 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end3-2')
+                    #print('end3-2')
 
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end3-3')
+                    #print('end3-3')
 
         network_weight = F.softmax(self.fabric_path_alpha, dim=-1) * 5
         network_weight = network_weight.data.cpu().numpy()
@@ -1018,17 +988,47 @@ class SplitFabricAutoDeepLab(MyNetwork):
         return actual_path, network_layer_to_space(actual_path)
 
     def genotype_decode(self):
-        # proxy-cell does not need genotype parser any more
-        # raise NotImplementedError
+        # use cell_arch_decode to replace genetype_decode
         raise NotImplementedError
-    '''
-    def initialize_alphas(self):
-        # TODO: get rid of this method
-        # TODO: add init ratio
-        alphas_network = torch.tensor(1e-3 * torch.randn(self.nb_layer, 4, 3), device='cuda:{}'.format(self.run_config.gpu_id), requires_grad=True)
-        self.register_parameter(self.arch_param_names[1], nn.Parameter(alphas_network))
-        self.alpha_network_mask = torch.ones(self.nb_layers, 4, 3)
-        '''
+
+    def cell_arch_decode(self):
+        genes = []
+        def _parse(alphas, steps):
+            gene = []
+            start = 0
+            n = 2  # offset
+            for i in range(steps):
+                end = start + n
+                # all the edge ignore None operation
+                edges = sorted(range(start, end), key=lambda x: -np.max(alphas[x, 1:]))
+                top1edge = edges[0]  # edge index
+                best_op_index = np.argmax(alphas[top1edge])  #
+                gene.append([top1edge, best_op_index])
+                start = end
+                n += 1  # move offset
+
+                # len(gene) related to steps, each step chose one path
+                # shape as [nb_steps, operation_index]
+            return np.array(gene)
+
+        # todo alphas is AP_path_alpha for all the paths in each cell not single node
+        for cell in self.cells:
+            alpha = None
+            for op in cell.ops:  # ops -> MobileInvertedResidual
+                mixededge = op.mobile_inverted_conv
+                assert mixededge.__str__().startswith('MixedEdge'), 'Error in cell_arch_decode'
+                if alpha is None:
+                    alpha = mixededge.AP_path_alpha.data
+                else:
+                    alpha1 = mixededge.AP_path_alpha.data
+                    alpha = np.concatenate([alpha, alpha1], dim=0)
+            gene = _parse(alpha, self.run_config.steps)
+            genes.append(gene)
+            # return genes, select which edge, which operation in each cell
+            # [path_index, operation_index]
+        return np.arrary(genes)
+        # shape as [nb_cells, nb_steps, operation_index]
+
     def architecture_path_parameters(self):
         # only architecture_path_parameters, within cells
         for name, param in self.named_parameters():
@@ -1238,6 +1238,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         return flop_stem0 + flop_stem1 + flop_stem2 + flops + flop_aspp
 
     def convert_to_normal_net(self):
+        # TODO: pay attention to call this method, each MixedEdge will be replaced by chosen layer, module_str() will raise errors
         # network level architecture is obtained by decoder, cell level architecture is obtained by this.
         queue = Queue()
         queue.put(self)
@@ -1277,5 +1278,3 @@ class ArchGradientFunction(torch.autograd.Function):
         binary_grads = ctx.backward_func(detached_prev_prev_c, detached_prev_c, output.data, grad_outputs.data)
 
         return  grad_prev_prev_c[0], grad_prev_c[0], binary_grads, None, None
-
-

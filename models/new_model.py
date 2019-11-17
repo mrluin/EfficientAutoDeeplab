@@ -17,9 +17,10 @@ class SplitCell(MyModule):
                  layer, filter_multiplier, block_multiplier, steps,
                  next_scale, prev_prev_scale, prev_scale,
                  cell_arch, network_arch,
-                 args):
+                 conv_candidates):
         super(SplitCell, self).__init__()
 
+        index_scale_dict = {-1: 2, 0: 4, 1: 8, 2: 16, 3: 32}
         # prev_prev_scale -> prev_scale -> next_scale
         # prev_scale is current_scale
         self.cell_index = get_list_index(layer, prev_scale)
@@ -28,16 +29,16 @@ class SplitCell(MyModule):
         # shape as [steps, operation_index], each node have only one path
 
         self.network_arch = network_arch
-        self.args = args
         # prev_prev_scale -> prev_scale -> next_scale
-        self.out_channels = int(filter_multiplier * block_multiplier * prev_scale / 4)
+        self.out_channels = int(filter_multiplier * block_multiplier * index_scale_dict[prev_scale] / 4)
+        #print(self.out_channels)
         if prev_prev_scale is not None:
             if layer == 0:
                 prev_prev_c = 64
             elif layer == 1:
                 prev_prev_c = 128
             else:
-                prev_prev_c = int(filter_multiplier * block_multiplier * prev_prev_scale / 4)
+                prev_prev_c = int(filter_multiplier * block_multiplier * index_scale_dict[prev_prev_scale] / 4)
             if prev_prev_scale == next_scale:
                 self.preprocess0 = ConvLayer(in_channels=prev_prev_c, out_channels=self.out_channels,
                                              kernel_size=1, stride=1, bias=False)
@@ -51,7 +52,7 @@ class SplitCell(MyModule):
             if layer == 0:
                 prev_c = 128
             else:
-                prev_c = int(filter_multiplier * block_multiplier * prev_scale / 4)
+                prev_c = int(filter_multiplier * block_multiplier * index_scale_dict[prev_scale] / 4)
             if prev_scale == next_scale - 1:
                 self.preprocess1 = FactorizedReduce(prev_c, self.out_channels)
             elif prev_scale == next_scale:
@@ -61,11 +62,14 @@ class SplitCell(MyModule):
 
         self.steps = steps
         self.ops = nn.ModuleList()
-        self.candidate_ops = args.conv_candidates
+        self.candidate_ops = conv_candidates
 
-        for x in self.cell_arch: # x is [path_index, operation_index]
+        for x in self.cell_arch:
+            # x : [[chosen_edge_index, chosen_operation]]
             # operation_index x[1]
-            op = MixedEdge(build_candidate_ops(self.candidate_ops[x[1]], self.out_channels, self.out_channels,
+            print('x: ',x)
+            print([self.candidate_ops[x[1].item()]])
+            op = MixedEdge(build_candidate_ops([self.candidate_ops[x[1].item()]], self.out_channels, self.out_channels,
                                                stride=1, ops_order='act_weight_bn'))
             self.ops.append(op)
 
@@ -103,12 +107,15 @@ class SplitCell(MyModule):
 class NewNetwork(MyNetwork):
     def __init__(self, network_arch, cell_arch,
                  filter_multiplier, block_multiplier, steps,
-                 nb_layers, nb_classes, init_channels,
+                 nb_layers, nb_classes, init_channels, conv_candidates,
                  cell=SplitCell,):
         super(NewNetwork, self).__init__()
 
         self.cell_arch = torch.from_numpy(cell_arch)
         self.network_arch = torch.from_numpy(network_arch)
+
+        print(self.cell_arch.shape)
+        print(self.network_arch.shape)
 
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
@@ -118,6 +125,8 @@ class NewNetwork(MyNetwork):
         self.nb_layers = nb_layers
         self.init_channels = init_channels # from layer0 scale0 128
         half_init_channels = self.init_channels // 2
+
+        self.conv_candidates = conv_candidates
 
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, half_init_channels, 3, 2, 1)),
@@ -139,6 +148,7 @@ class NewNetwork(MyNetwork):
         # TODO: in the case, prev_prev_c can be output of stem1 and stem2
         prev_prev_scale = 0
         prev_scale = 0
+
         for i in range(self.nb_layers):
             if i == 0:
                 next_scale_option = torch.sum(self.network_arch[i], dim=1)
@@ -162,7 +172,7 @@ class NewNetwork(MyNetwork):
 
             _cell = cell(i, self.filter_multiplier, self.block_multiplier, self.steps, next_scale,
                          prev_prev_scale=prev_prev_scale, prev_scale=prev_scale,
-                         cell_arch=self.cell_arch, network_arch=self.network_arch, args=self.args)
+                         cell_arch=self.cell_arch, network_arch=self.network_arch, conv_candidates=self.conv_candidates)
 
             self.cells += [_cell]
 
@@ -256,13 +266,6 @@ def genotype_decode(net):
     '''
     # under the case of get cell gene[]
     '''
-
-
-
-
-
-
-
     # TODO: apply _parse to each cell in super_network
     '''
     # each cell in the super_network has an array of gene, save len[]=nb_cellls

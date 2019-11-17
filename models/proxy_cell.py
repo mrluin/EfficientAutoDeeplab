@@ -179,15 +179,18 @@ class Proxy_cell(MyModule):
         if self.preprocess0 is not None:
             log_str += 'prev_prev_c: '+self.preprocess0.module_str+'\n'
         if type == 'reduction':
-            log_str += 'prev_c_reduce: '+self.preprocess1_down.module_str+'\t'
+            log_str += 'prev_c_reduce: '+self.preprocess1_down.module_str+'\n'
         elif type == 'same':
-            log_str += 'prev_c_same: '+self.preprocess1_same.module_str+'\t'
+            log_str += 'prev_c_same: '+self.preprocess1_same.module_str+'\n'
         elif type == 'up':
-            log_str += 'prev_c_up: '+self.preprocess1_up.module_str+'\t'
+            log_str += 'prev_c_up: '+self.preprocess1_up.module_str+'\n'
         # each edge: mixed_operation -> get_module_str
         for index, op in enumerate(self.ops):
-            # op is MBConvResidualBlock
-            frag_log_str = '(path{})'.format(index) + op.module_str() + '\n'
+            # op is MBConvResidualBlock or None
+            if op is not None:
+                frag_log_str = '(path{})'.format(index) + op.module_str() + '\n'
+            else:
+                frag_log_str = '(path{})'.format(index) + 'None' + '\n'
             log_str += frag_log_str
         final_log = 'Cell Final Conv:'+self.final_conv1x1.module_str+'\n'
         log_str += final_log

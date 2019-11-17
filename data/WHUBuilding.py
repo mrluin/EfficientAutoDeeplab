@@ -6,10 +6,8 @@ import os
 import glob
 import random
 import torch
-
 from PIL import Image
 from data.base_provider import *
-
 class WHUBuildingDataset(data.Dataset):
     def __init__(self, data_path, transform=True, rt_filename=False):
         super(WHUBuildingDataset, self).__init__()

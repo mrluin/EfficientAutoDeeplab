@@ -248,7 +248,7 @@ def get_scale_relation(scale, next_scale):
 
 def network_layer_to_space(net_arch, nb_layers):
     assert len(net_arch) == nb_layers, 'invalid nb_layers'
-    network_space = np.zeors(nb_layers, 4, 3)
+    network_space = np.zeros((nb_layers, 4, 3))
 
     # record scale from 1 to 12
     # i            from 0 to 11

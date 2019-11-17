@@ -5,7 +5,6 @@ import torch
 import logging
 import torch.nn as nn
 import json
-
 from datetime import timedelta
 from data.WHUBuilding import WHUBuildingDataProvider
 from utils.common import set_manual_seed
@@ -15,8 +14,6 @@ from utils.common import count_parameters
 from utils.loss import SegmentationLosses
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
-
-
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -24,7 +21,6 @@ from utils.calculators import calculate_weights_labels
 # RunManager: 1. manage to train, valid and test
 #             2. processes related to training phrase
 '''
-
 class RunConfig:
     def __init__(self, total_epochs,
                  gpu_ids, workers,
@@ -37,6 +33,7 @@ class RunConfig:
                  validation_freq, print_freq, save_ckpt_freq, monitor, print_save_arch_information, save_normal_net_after_training,
                  print_arch_param_step_freq,
                  use_unbalanced_weights,
+                 conv_candidates,
                  **kwargs):
 
         self.total_epochs = total_epochs
@@ -86,6 +83,9 @@ class RunConfig:
         self.print_arch_param_step_freq = print_arch_param_step_freq
 
         self.use_unbalanced_weights = use_unbalanced_weights
+
+        self.conv_candidates = conv_candidates
+
 
         self._data_provider = None
         self._train_iter, self._valid_iter, self._test_iter = None, None, None

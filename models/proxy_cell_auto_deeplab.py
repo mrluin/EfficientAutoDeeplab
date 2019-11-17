@@ -110,9 +110,11 @@ class ProxyAutoDeepLab(MyNetwork):
         self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3, self.run_config.nb_classes)
 
         self.set_bn_param(momentum=self.run_config.bn_momentum, eps=self.run_config.bn_eps)
+
     @property
     def config(self):
         raise ValueError('not needed')
+
     @staticmethod
     def build_from_config(config):
         raise ValueError('not needed')
@@ -252,7 +254,7 @@ class ProxyAutoDeepLab(MyNetwork):
                     max_prob = curr_value
                 return
             if layer == 0:
-                print('begin layer 0')
+                #print('begin layer 0')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -260,15 +262,15 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
             elif layer == 1:
-                print('begin layer 1')
+                #print('begin layer 1')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -276,13 +278,13 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -290,21 +292,21 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
             elif layer == 2:
-                print('begin layer 2')
+                #print('begin layer 2')
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -312,13 +314,13 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -326,19 +328,19 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
                 scale = 2
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -346,22 +348,22 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end2-1')
+                    #print('end2-1')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end2-2')
+                    #print('end2-2')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end2-3')
+                    #print('end2-3')
 
             else:
-                print('begin layer {}'.format(layer))
+                #print('begin layer {}'.format(layer))
                 scale = 0
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][1]
@@ -369,13 +371,13 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end0-0')
+                    #print('end0-0')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end0-1')
+                    #print('end0-1')
                 scale = 1
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -383,19 +385,19 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=0)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end1-0')
+                    #print('end1-0')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 1])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end1-1')
+                    #print('end1-1')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end1-2')
+                    #print('end1-2')
 
                 scale = 2
                 if last == scale:
@@ -404,19 +406,19 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=1)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end2-1')
+                    #print('end2-1')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 2])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end2-2')
+                    #print('end2-2')
                     curr_value = curr_value * network_weight[layer][scale][2]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][2]
                     curr_result.pop()
-                    print('end2-3')
+                    #print('end2-3')
                 scale = 3
                 if last == scale:
                     curr_value = curr_value * network_weight[layer][scale][0]
@@ -424,13 +426,13 @@ class ProxyAutoDeepLab(MyNetwork):
                     _parse(network_weight, layer+1, curr_value, curr_result, last=2)
                     curr_value = curr_value / network_weight[layer][scale][0]
                     curr_result.pop()
-                    print('end3-2')
+                    #print('end3-2')
                     curr_value = curr_value * network_weight[layer][scale][1]
                     curr_result.append([scale, 3])
                     _parse(network_weight, layer+1, curr_value, curr_result, last=3)
                     curr_value = curr_value / network_weight[layer][scale][1]
                     curr_result.pop()
-                    print('end3-3')
+                    #print('end3-3')
         network_weight = F.softmax(self.arch_network_parameters, dim=-1) * 5
         network_weight = network_weight.data.cpu().numpy()
         _parse(network_weight, 0, 1, [], 0)
@@ -467,7 +469,7 @@ class ProxyAutoDeepLab(MyNetwork):
         # prob_space [layer, sample] means the layer-the choice go to sample-th scale
         # network space 0 ↗, 1 →, 2 ↘  , rate means choice
         # path_space    1    0   -1      1-rate means path
-        for layer in range(self.network_space.shape[0]):
+        for layer in range(network_space.shape[0]):
             if layer == 0:
                 prob_space[layer][0] = network_space[layer][0][1] # 0-layer go to next 0-scale prob
                 prob_space[layer][1] = network_space[layer][0][2] # 0-layer go to next 1-scale prob
@@ -502,7 +504,7 @@ class ProxyAutoDeepLab(MyNetwork):
         for i in range(1, self.nb_layers): # get scale path according to path_space
             actual_path[-i-1] = actual_path[-i] + path_space[self.nb_layers - i, actual_path[-i]]
 
-        return actual_path,  network_layer_to_space(actual_path)
+        return actual_path,  network_layer_to_space(actual_path, 12)
 
 
     def genotype(self):
@@ -691,7 +693,8 @@ class ProxyAutoDeepLab(MyNetwork):
     def get_flops(self, x):
         # x is the tensor with the same shape of input
         # get each cell flops and aspp flops
-        cell_decode_network = self.convert_to_normal_net() # cell path level
+        # TODO: there are some issues in self.convert_to_normal_net(), will have effect on the following module_str()
+        #cell_decode_network = self.convert_to_normal_net() # cell path level
         best_result = self.decode_network() # [(scale, next_scale)] * 12 network path level
         assert len(best_result) == self.run_config.nb_layers, 'Error in self.net.decode_network'
         flops = 0.
@@ -733,7 +736,6 @@ class ProxyAutoDeepLab(MyNetwork):
 
 
     def convert_to_normal_net(self):
-        # TODO: this method exist issue, cannot find MixedEdge
         queue = Queue()
         queue.put(self)
         while not queue.empty():
@@ -751,14 +753,17 @@ class ProxyAutoDeepLab(MyNetwork):
         return ProxyAutoDeepLab(self.run_config, self.arch_search_config, self.conv_candidates)
 
     def cell_arch_decode(self):
-        genes = []
-        def _parse(alphas, steps):
+        genes = [] # [nb_cells, nb_edges, edge_index, best_op]
+        # TODO: confirm nb_choices
+        nb_choices = 7
+        def _parse(alphas, steps, has_none):
+            # TODO: just include None edge, probs of all operation are all zero, it will never be selected
             gene = []
             start = 0
             n = 2  # offset
             for i in range(steps):
                 end = start + n
-                # all the edge ignore None operation
+                # all the edge ignore Zero operation TODO: reconfirm Zero operation index
                 edges = sorted(range(start, end), key=lambda x: -np.max(alphas[x, 1:]))
                 top1edge = edges[0]  # edge index
                 best_op_index = np.argmax(alphas[top1edge])  #
@@ -768,22 +773,41 @@ class ProxyAutoDeepLab(MyNetwork):
 
                 # len(gene) related to steps, each step chose one path
                 # shape as [nb_steps, operation_index]
+
             return np.array(gene)
 
         # todo alphas is AP_path_alpha for all the paths in each cell not single node
+
+        # TODO: nb_edges in cells
+        nb_edges = 2
         for cell in self.cells:
-            alpha = None
-            for op in cell.ops:  # ops -> MobileInvertedResidual
-                mixededge = op.mobile_inverted_conv
-                assert mixededge.__str__().startswith('MixedEdge'), 'Error in cell_arch_decode'
-                if alpha is None:
-                    alpha = mixededge.AP_path_alpha.data
-                else:
-                    alpha1 = mixededge.AP_path_alpha.data
-                    alpha = np.concatenate([alpha, alpha1], dim=0)
-            gene = _parse(alpha, self.run_config.steps)
+            alpha = np.zeros((nb_edges, nb_choices))
+            has_none = False
+            for index, op in enumerate(cell.ops):
+                #print(index)
+                # each op is MobileInvertedResidual
+                # MixedEdge is op.mobile_inverted_conv
+                # Each MixedEdge has 'None' case, when prev_prev_c is None and edge_index==0
+                # so the cell_arch of each cell in fabric will raise size mismatch error
+                # TODO: each cell_arch list or array, cannot use concatenate
+                # if mobile_inverted_conv is None and shortcut is None, then ops.appends(None)
+                if op is None:
+                    #print('find None operation')
+                    assert index == 0, 'invalid edge_index, {} is None'.format(index)
+                    has_none = True
+                elif op is not None:
+                    mixededge = op.mobile_inverted_conv
+                    assert mixededge.__str__().startswith('MixedEdge'), 'Error in cell_arch_decode'
+                    alpha[index] = mixededge.AP_path_alpha.data.cpu().numpy()
+            #print(alpha)
+            #print(alpha.shape)
+            # alpha is a list, including [path_index, path_alpha] in a cell
+            gene = _parse(alpha, self.run_config.steps, has_none)
+            #print('---')
+            #print(gene)
+            #print(gene)
             genes.append(gene)
             # return genes, select which edge, which operation in each cell
             # [path_index, operation_index]
-        return np.arrary(genes)
+        return np.array(genes)
         # shape as [nb_cells, nb_steps, operation_index]
