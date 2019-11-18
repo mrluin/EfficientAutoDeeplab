@@ -5,13 +5,13 @@ import logging
 import random
 import time
 import numpy as np
-
+import shutil
 
 
 
 def print_experiment_environment():
 
-    print('\n','-'*30+'->\tworking with PyTorch version {}'.format(torch.__version__))
+    print('\n'+'-'*30+'->\tworking with PyTorch version {}'.format(torch.__version__))
     print('-'*30+'->\twith cuda version {}'.format(torch.version.cuda))
     print('-'*30+'->\tcudnn enabled: {}'.format(torch.backends.cudnn.enabled))
     print('-'*30+'->\tcudnn version: {}'.format(torch.backends.cudnn.version()))
@@ -270,3 +270,14 @@ def network_layer_to_space(net_arch, nb_layers):
         prev = scale
 
     return network_space
+
+def create_exp_dir(path, scripts_to_save=None):
+    if not os.path.exists(path):
+        os.mkdir(path)
+    print('Experiment dir: {}'.format(path))
+
+    if scripts_to_save  is not None:
+        os.mkdir(os.path.join(path, 'scripts'))
+        for script in scripts_to_save:
+            dst_file = os.path.join(path, 'scripts', os.path.basename(script))
+            shutil.copyfile(script, dst_file)

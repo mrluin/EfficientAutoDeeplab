@@ -460,7 +460,8 @@ class ASPP(MyModule):
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.gp_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels, in_channels, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(in_channels))
+            ('bn', nn.BatchNorm2d(in_channels)),
+            ('relu', nn.ReLU(inplace=False))
         ]))
         self.concat_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels * 3, in_channels, 1, bias=False)),

@@ -346,6 +346,7 @@ class RunManager:
         # data_shape [1, 3, 512, 512]
 
         net = self.net
+        #
         input_var = torch.zeros(data_shape, device=self.device)
         with torch.no_grad():
             flop, _ = net.get_flops(input_var)

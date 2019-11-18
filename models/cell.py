@@ -6,7 +6,7 @@ from genotype import PRIMITIVES
 
 from run_manager import *
 
-#__all__ = ['Cell', 'Split_Cell']
+__all__ = ['Cell', 'Split_Cell']
 
 class Cell(MyModule):
     def __init__(self,
@@ -138,13 +138,17 @@ class Split_Cell(MyModule):
         self.conv_candidates = conv_candidates
 
         self.outc = int(self.filter_multiplier * self.block_multiplier * scale / 4)
+        self.prev_c = prev_c
+        self.prev_prev_c = prev_prev_c
         self.types = types
 
         self.ops = nn.ModuleList()
 
         self.preprocess0 = None
         if prev_prev_c is not None:
-            self.preprocess0 = ConvLayer(prev_prev_c, self.outc, 1, 1, bias=False)
+            if prev_prev_c == -1:
+                self.prev_prev_c = int(self.filter_multiplier * self.block_multiplier * scale / 4)
+            self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, bias=False)
 
         if prev_c is not None:
             # up same down defined separatly
@@ -181,11 +185,14 @@ class Split_Cell(MyModule):
                         stride=stride, ops_order='act_weight_bn'
                     ))
                     shortcut = Identity(self.outc, self.outc)
-                inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+                if conv_op is None and shortcut is None:
+                    inverted_residual_block = None
+                else: inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
                 self.ops.append(inverted_residual_block)
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, 0)
 
     def forward(self, s0, s1):
+        #print(s0)
         if s0 is not None:
             s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
@@ -240,7 +247,10 @@ class Split_Cell(MyModule):
             log_str += 'prev_prev_c: '+self.preprocess0.module_str+'\n'
         log_str += 'prev_c: '+self.preprocess1.module_str+'\n'
         for index, op in enumerate(self.ops):
-            frag_log_str = '(path {})'.format(index)+op.module_str()+'\n'
+            if op is not None:
+                frag_log_str = '(path {})'.format(index)+op.module_str()+'\n'
+            else:
+                frag_log_str = '(path {})'.format(index) + 'None' + '\n'
             log_str += frag_log_str
         final_log = 'Cell Final Conv: '+self.final_conv1x1.module_str+'\n'
         log_str += final_log

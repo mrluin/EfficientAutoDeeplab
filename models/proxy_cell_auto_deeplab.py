@@ -441,7 +441,8 @@ class ProxyAutoDeepLab(MyNetwork):
 
     def viterbi_decode(self):
 
-        network_space = torch.zeros(self.nb_layers, 4, 3)
+        #network_space = torch.zeros(self.nb_layers, 4, 3) # [12, 4, 3]
+        network_space = np.zeros((self.nb_layers, 4, 3))
         for layer in range(self.nb_layers):
             if layer == 0:
                 network_space[layer][0][1:] = F.softmax(self.arch_network_parameters.data[layer][0][1:], dim=-1) * (
@@ -691,12 +692,15 @@ class ProxyAutoDeepLab(MyNetwork):
         return log_str
 
     def get_flops(self, x):
+        # TODO: change into using viterbi algorithm
         # x is the tensor with the same shape of input
         # get each cell flops and aspp flops
         # TODO: there are some issues in self.convert_to_normal_net(), will have effect on the following module_str()
         #cell_decode_network = self.convert_to_normal_net() # cell path level
-        best_result = self.decode_network() # [(scale, next_scale)] * 12 network path level
-        assert len(best_result) == self.run_config.nb_layers, 'Error in self.net.decode_network'
+        #best_result = self.decode_network() # [(scale, next_scale)] * 12 network path level
+        actual_path, _ = self.viterbi_decode()
+        #assert len(best_result) == self.run_config.nb_layers, 'Error in self.net.decode_network'
+        assert len(actual_path) == self.nb_layers, 'Error in actual_path of net.get_flops'
         flops = 0.
         flop_stem0 = count_normal_conv_flop(self.stem0.conv, x)
         x = self.stem0(x)
@@ -705,23 +709,25 @@ class ProxyAutoDeepLab(MyNetwork):
         flop_stem2 = count_normal_conv_flop(self.stem2.conv, x)
         x = self.stem2(x)
 
-
+        prev_scale = 0
         inter_features = [[0, None], [0, x]] # save prev_prev_output and prev_output
         for layer in range(self.nb_layers):
-            current_scale = best_result[layer][0]
-            next_scale = best_result[layer][1]
+            current_scale = prev_scale
+            #current_scale = best_result[layer][0]
+            next_scale = actual_path[layer] # scale of layer+1
             prev_prev_c, prev_c = get_prev_c(inter_features, next_scale)
             type = get_cell_decode_type(current_scale, next_scale)
             index = get_list_index(layer, next_scale)
             frag_flop, out = self.cells[index].get_flops(prev_prev_c, prev_c, type)
             flops = flops + frag_flop
-            inter_features.pop()
+            prev_scale = next_scale
+            inter_features.pop(0)
             inter_features.append([next_scale, out])
 
         # aspp flops
         last_scale = inter_features[-1][0]
 
-        print(last_scale)
+        #print(last_scale)
         if last_scale == 0:
             flop_aspp, output = self.aspp4.get_flops(inter_features[-1][1])
         elif last_scale == 1:

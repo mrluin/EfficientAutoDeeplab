@@ -2,6 +2,7 @@ import os
 import logging
 import torch
 import torch.nn as nn
+import glob
 
 from run_manager import RunConfig
 from nas_manager import ArchSearchRunManager
@@ -12,6 +13,9 @@ from utils.common import set_manual_seed
 from configs.train_search_config import obtain_train_search_args
 from models.auto_deeplab import AutoDeepLab
 from models.proxy_cell_auto_deeplab import ProxyAutoDeepLab
+from models.split_fabric_auto_deeplab import SplitFabricAutoDeepLab
+from utils.common import create_exp_dir
+
 
 
 if __name__ == '__main__':
@@ -29,6 +33,9 @@ if __name__ == '__main__':
     # Noting: 1.get ride of logging print.
     '''
     args = obtain_train_search_args()
+
+
+
     set_manual_seed(args.random_seed)
 
     torch.backends.cudnn.benchmark = True
@@ -42,6 +49,10 @@ if __name__ == '__main__':
     EXP_time = time_for_file()
     # /home/jingweipeng/ljb/Jingbo.TTB/proxy_auto_deeplab/exp_time
     args.path = os.path.join(args.path, args.exp_name, EXP_time)
+
+    # save experiment scripts
+    create_exp_dir(args.path, scripts_to_save=glob.glob('*.py'))
+
     # build run configs
     args.lr_scheduler_param = None
     args.optim_params = {
@@ -126,7 +137,12 @@ if __name__ == '__main__':
         run_config, arch_search_config, args.conv_candidates
     )
     '''
+    '''
     auto_deeplab = ProxyAutoDeepLab(
+        run_config, arch_search_config, args.conv_candidates
+    )
+    '''
+    auto_deeplab = SplitFabricAutoDeepLab(
         run_config, arch_search_config, args.conv_candidates
     )
 

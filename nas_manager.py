@@ -199,7 +199,7 @@ class ArchSearchRunManager:
         # for validation phrase, not train search phrase, only performing validation
         # valid_loader batch_size = test_batch_size
         # have already equals to test_batch_size in DataProvider
-        self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.run_manager.run_config.test_batch_size
+        self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.run_manager.run_config.train_batch_size
         self.run_manager.run_config.valid_loader.batch_sampler.drop_last = False
 
         self.net.set_chosen_op_active()
@@ -210,7 +210,7 @@ class ArchSearchRunManager:
         # like bn or dropout
         loss, acc, miou, fscore = self.run_manager.validate(is_test=False, net=self.net, use_train_mode=True)
         flops = self.run_manager.net_flops()
-
+        params = count_parameters(self.net)
         # target_hardware is None by default
         if self.arch_search_config.target_hardware in ['flops', None]:
             latency = 0
@@ -218,7 +218,7 @@ class ArchSearchRunManager:
             raise NotImplementedError
 
         self.net.unused_modules_back()
-        return loss, acc, miou, fscore, flops, latency
+        return loss, acc, miou, fscore, flops, params
 
     def warm_up(self, warmup_epochs):
         if warmup_epochs <=0 :
@@ -238,6 +238,7 @@ class ArchSearchRunManager:
             if device == torch.device('cpu'):
                 print('ERROR in', name, device)
                 '''
+        '''
         def hook(module, grad_input, grad_output):
             for i in range(len(grad_input)):
                 if grad_input[i] is not None and torch.Tensor.type(grad_input[i]) == 'torch.FloatTensor':
@@ -255,6 +256,7 @@ class ArchSearchRunManager:
         # for module in self.net.modules():
             # module.register_backward_hook(hook)
             # module.register_forward_hook(forward_hook)
+            '''
         for epoch in range(self.warmup_epoch, warmup_epochs):
             print('\n', '-'*30, 'Warmup Epoch: {}'.format(epoch+1), '-'*30, '\n')
             batch_time = AverageMeter()
@@ -268,12 +270,25 @@ class ArchSearchRunManager:
             print('\twarm up epoch {}'.format(epoch))
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
+
+                # TODO: evaluate memory allocation
+                if i == 5 : break
+
+                print('before datas')
+                print('memory_allocated', torch.cuda.memory_allocated())
+                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
                     targets = targets.to(self.run_manager.device, non_blocking=True)
                 else:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end)
+
+                print('after datas')
+                print('memory_allocated', torch.cuda.memory_allocated())
+                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+
 
                 # adjust warmup_lr
                 warmup_lr = self.run_manager.run_config.adjust_learning_rate(
@@ -287,7 +302,16 @@ class ArchSearchRunManager:
                 self.net.reset_binary_gates()
                 self.net.unused_modules_off()
 
+                print('after binarize')
+                print('memory_allocated', torch.cuda.memory_allocated())
+                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+
                 logits = self.net(datas)
+
+                print('after forward')
+                print('memory_allocated', torch.cuda.memory_allocated())
+                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+
                 '''
                 if self.run_manager.run_config.label_smoothing > 0.:
                     raise NotImplementedError
@@ -311,10 +335,15 @@ class ArchSearchRunManager:
                         '''
 
                 loss.backward()
+                print('after backwards')
+                print('memory_allocated', torch.cuda.memory_allocated())
+                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+
                 self.run_manager.optimizer.step()
                 self.net.unused_modules_back()
 
                 # measure metrics and update
+
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
                 acc = evaluator.Pixel_Accuracy()
@@ -325,6 +354,7 @@ class ArchSearchRunManager:
                 accs.update(acc, datas.size(0))
                 mious.update(miou, datas.size(0))
                 fscores.update(fscore, datas.size(0))
+
 
                 # gradient and update parameters
                 # self.run_manager.optimizer.zero_grad()
@@ -347,10 +377,11 @@ class ArchSearchRunManager:
                     )
                     # TODO: do not use self.write_log
                     self.run_manager.write_log(batch_log, 'train')
-            # at the end of each epoch, performing valid
-            valid_loss, valid_acc, valid_miou, valid_fscore, flops, latency = self.validate()
-            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M'\
-                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops)
+
+            # perform validate at the end of each epoch
+            valid_loss, valid_acc, valid_miou, valid_fscore, flops, params = self.validate()
+            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M\tparams{7:}M'\
+                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops, params / 1e6)
             valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
 
             # target_hardware is None by default
@@ -359,21 +390,22 @@ class ArchSearchRunManager:
 
             self.run_manager.write_log(valid_log, 'valid')
             # continue warmup phrase
-            self.warmup = epoch + 1 < warmup_epochs
 
-            state_dict = self.net.state_dict()
-            # TODO: why
-            # rm architecture parameters & binary gates
-            for key in list(state_dict.keys()):
-                if 'AP_path_alpha' in key or 'AP_path_wb' in key:
-                    state_dict.pop(key)
-            checkpoint = {
-                'state_dict': state_dict,
-                'warmup': self.warmup
-            }
-            if self.warmup:
-                checkpoint['warmup_epoch'] = epoch
-            if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
+            self.warmup = epoch + 1 < warmup_epochs
+            # To save checkpoint in warmup phase at specific frequency.
+            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
+                state_dict = self.net.state_dict()
+                # TODO: why
+                # rm architecture parameters & binary gates
+                for key in list(state_dict.keys()):
+                    if 'AP_path_alpha' in key or 'AP_path_wb' in key:
+                        state_dict.pop(key)
+                checkpoint = {
+                    'state_dict': state_dict,
+                    'warmup': self.warmup
+                }
+                if self.warmup:
+                    checkpoint['warmup_epoch'] = epoch
                 self.run_manager.save_model(epoch, checkpoint, is_best=False,
                                             checkpoint_file_name='checkpoint-warmup.pth.tar')
 
@@ -381,15 +413,16 @@ class ArchSearchRunManager:
         data_loader = self.run_manager.run_config.train_loader
         iter_per_epoch = len(data_loader)
         arch_update_flag = 0
-        if fix_net_weights:
+        if fix_net_weights: # used to debug
             data_loader = [(0, 0)] * iter_per_epoch
             print('Train Phase close for debug')
             arch_update_flag = 0
+
         arch_param_num = len(list(self.net.architecture_parameters()))
         binary_gates_num = len(list(self.net.binary_gates()))
         weight_param_num = len(list(self.net.weight_parameters()))
 
-        logging.info(
+        print(
             '#arch_params: {}\t #binary_gates: {}\t # weight_params: {}'.format(
                 arch_param_num, binary_gates_num, weight_param_num))
 
@@ -399,7 +432,7 @@ class ArchSearchRunManager:
         #print(update_schedule)
 
         for epoch in range(self.run_manager.start_epoch, self.run_manager.run_config.total_epochs):
-            logging.info('\n', '-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30, '\n')
+            print('\n', '-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30, '\n')
 
             batch_time = AverageMeter()
             data_time = AverageMeter()
@@ -480,7 +513,7 @@ class ArchSearchRunManager:
                         self.run_manager.write_log(batch_log, 'train', should_print=True)
 
                 # TODO: skip arch_param update in the first epoch
-                if epoch >= 0:
+                if epoch > 0:
                     if not fix_net_weights:
                         for j in range(update_schedule.get(i, 0)): # step i update arch_param times
                             start_time = time.time()
