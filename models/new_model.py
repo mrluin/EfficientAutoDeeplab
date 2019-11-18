@@ -16,19 +16,15 @@ class SplitCell(MyModule):
     def __init__(self,
                  layer, filter_multiplier, block_multiplier, steps,
                  next_scale, prev_prev_scale, prev_scale,
-                 cell_arch, network_arch,
+                 cell_arch, actual_path,
                  conv_candidates):
         super(SplitCell, self).__init__()
 
         index_scale_dict = {-1: 2, 0: 4, 1: 8, 2: 16, 3: 32}
         # prev_prev_scale -> prev_scale -> next_scale
         # prev_scale is current_scale
-        self.cell_index = get_list_index(layer, prev_scale)
-
-        self.cell_arch = cell_arch[self.cell_index]
-        # shape as [steps, operation_index], each node have only one path
-
-        self.network_arch = network_arch
+        self.cell_arch = cell_arch[layer] # [selected_edge, chosen_operation], selected_edge = self.steps * each node's edges
+        self.actual_path = actual_path
         # prev_prev_scale -> prev_scale -> next_scale
         self.out_channels = int(filter_multiplier * block_multiplier * index_scale_dict[prev_scale] / 4)
         #print(self.out_channels)
@@ -47,7 +43,8 @@ class SplitCell(MyModule):
             elif prev_prev_scale == next_scale + 1:
                 self.preprocess0 = FactorizedIncrease(in_channels=prev_prev_c, out_channels=self.out_channels)
             else:
-                raise ValueError('invalid relation between prev_prev_scale and next_scale')
+                self.preprocess0 = None
+                #raise ValueError('invalid relation between prev_prev_scale and next_scale')
         if prev_scale is not None:
             if layer == 0:
                 prev_c = 128
@@ -67,16 +64,33 @@ class SplitCell(MyModule):
         for x in self.cell_arch:
             # x : [[chosen_edge_index, chosen_operation]]
             # operation_index x[1]
-            print('x: ',x)
-            print([self.candidate_ops[x[1].item()]])
-            op = MixedEdge(build_candidate_ops([self.candidate_ops[x[1].item()]], self.out_channels, self.out_channels,
+            #print('x: ',x)
+            #print([self.candidate_ops[x[1].item()]])
+            conv_op = MixedEdge(build_candidate_ops([self.candidate_ops[x[1].item()]], self.out_channels, self.out_channels,
                                                stride=1, ops_order='act_weight_bn'))
-            self.ops.append(op)
+            shortcut = Identity(self.out_channels, self.out_channels)
+            inverted_residual_block = MobileInvertedResidualBlock(conv_op, shortcut)
+            self.ops.append(inverted_residual_block)
+        #self.finalconv1x1 = nn.Conv2d(self.steps * self.out_channels, 1, 1, 0, bias=False)
+        self.finalconv1x1 = ConvLayer(self.steps * self.out_channels, self.out_channels, 1, 1, False)
+    def module_str(self):
+        log_str = ''
+        for index, op in enumerate(self.ops):
+            # op is MBConvResidualBlock or None
+            if op is not None:
+                frag_log_str = '(path{})'.format(index) + op.module_str() + '\n'
+            else:
+                frag_log_str = '(path{})'.format(index) + 'None' + '\n'
+            log_str += frag_log_str
 
-            # TODO: cell architecture decode, and build cell according to derived PRIMITIVES
-        self.finalconv1x1 = nn.Conv2d(self.steps * self.out_channels, 1, 1, 0, bias=False)
+        final_log = 'Cell Final Conv:' + self.finalconv1x1.module_str + '\n'
+        log_str += final_log
+        return
+
     def forward(self, prev_prev_c ,prev_c):
-        s0 = self.preprocess0(prev_prev_c)
+        s0 = None
+        if self.preprocess0 is not None:
+            s0 = self.preprocess0(prev_prev_c)
         s1 = self.preprocess1(prev_c)
 
         states = [s0, s1]
@@ -90,7 +104,7 @@ class SplitCell(MyModule):
                    # self.cell_arch[:, 0] means all the selected paths, the current branch is selected
                    # TODO: Does this case exist?
                    # TODO: In this case, prev_prev_c always exists
-                    if prev_prev_c is None and j == 0: # the first edge, related to prev_prev_cell
+                    if h is None and j == 0: # the first edge of each node, related to prev_prev_cell
                         ops_index += 1
                         continue
                     # if the path is select, current path index and its related operation is append in self.ops ordered
@@ -105,17 +119,17 @@ class SplitCell(MyModule):
         return out
 
 class NewNetwork(MyNetwork):
-    def __init__(self, network_arch, cell_arch,
+    def __init__(self, actual_path, cell_arch,
                  filter_multiplier, block_multiplier, steps,
                  nb_layers, nb_classes, init_channels, conv_candidates,
-                 cell=SplitCell,):
+                 cell=SplitCell):
         super(NewNetwork, self).__init__()
 
         self.cell_arch = torch.from_numpy(cell_arch)
-        self.network_arch = torch.from_numpy(network_arch)
+        self.actual_path = torch.from_numpy(actual_path)
 
-        print(self.cell_arch.shape)
-        print(self.network_arch.shape)
+        print('cell_arch shaep: ',self.cell_arch.shape)
+        print('actual_path: ',self.actual_path)
 
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
@@ -146,16 +160,23 @@ class NewNetwork(MyNetwork):
         # prev_prev_scale is previous layer scale, w.r.t. next's prev_prev
 
         # TODO: in the case, prev_prev_c can be output of stem1 and stem2
-        prev_prev_scale = 0
+        prev_prev_scale = -1
         prev_scale = 0
-
         for i in range(self.nb_layers):
+            prev_prev_scale = prev_prev_scale
+            prev_scale = prev_scale
+            next_scale = self.actual_path[i].item()
+            '''
             if i == 0:
-                next_scale_option = torch.sum(self.network_arch[i], dim=1)
-                next_scale = torch.argmax(next_scale_option).item()
-                prev_scale = 0
-                prev_prev_scale = -1
+                prev_prev_scale = prev_prev_scale
+                prev_scale = prev_scale
+                next_scale = self.actual_path[i]
+                #next_scale_option = torch.sum(self.network_arch[i], dim=1)
+                #next_scale = torch.argmax(next_scale_option).item()
+                #prev_scale = 0
+                #prev_prev_scale = -1
             elif i == 1:
+                prev_prev_scale =
                 next_scale_option = torch.sum(self.network_arch[i], dim=1)
                 prev_scale_option = torch.sum(self.network_arch[i - 1], dim=1)
                 next_scale = torch.argmax(next_scale_option).item()
@@ -168,13 +189,38 @@ class NewNetwork(MyNetwork):
                 next_scale = torch.argmax(next_scale_option).item()
                 prev_scale = torch.argmax(prev_scale_option).item()
                 prev_prev_scale = torch.argmax(prev_prev_scale_option).item()
-            assert next_scale < (i + 1), 'invalid next_scale in layer {}'.format(i)
+                '''
+            #print(next_scale)
+            assert next_scale < (i + 1 + 1), 'invalid next_scale in layer {}'.format(i)
 
             _cell = cell(i, self.filter_multiplier, self.block_multiplier, self.steps, next_scale,
                          prev_prev_scale=prev_prev_scale, prev_scale=prev_scale,
-                         cell_arch=self.cell_arch, network_arch=self.network_arch, conv_candidates=self.conv_candidates)
+                         cell_arch=self.cell_arch, actual_path=self.actual_path, conv_candidates=self.conv_candidates)
+            # swap
+            prev_prev_scale = prev_scale
+            prev_scale = next_scale
+            next_scale = self.actual_path[i].item()
 
             self.cells += [_cell]
+
+        # self.network_arch.shape [12, 4, 3]
+        scale4_outc = int(self.filter_multiplier * self.block_multiplier * 4 / 4)
+        scale8_outc = int(self.filter_multiplier * self.block_multiplier * 8 / 4)
+        scale16_outc = int(self.filter_multiplier * self.block_multiplier * 16 / 4)
+        scale32_outc = int(self.filter_multiplier * self.block_multiplier * 32 / 4)
+
+        last_scale = actual_path[-1]
+        print(last_scale)
+        if last_scale == 0:
+            self.aspp = ASPP(scale4_outc, self.nb_classes, 24, self.nb_classes)
+        elif last_scale == 1:
+            self.aspp = ASPP(scale8_outc, self.nb_classes, 12, self.nb_classes)
+        elif last_scale == 2:
+            self.aspp = ASPP(scale16_outc, self.nb_classes, 6, self.nb_classes)
+        elif last_scale == 3:
+            self.aspp = ASPP(scale32_outc, self.nb_classes, 3, self.nb_classes)
+        else:
+            raise ValueError('invalid last_scale value {}'.format(last_scale))
 
     def forward(self, x):
         inter_features = []

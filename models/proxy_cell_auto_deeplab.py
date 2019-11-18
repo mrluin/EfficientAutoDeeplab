@@ -811,3 +811,53 @@ class ProxyAutoDeepLab(MyNetwork):
             # [path_index, operation_index]
         return np.array(genes)
         # shape as [nb_cells, nb_steps, operation_index]
+
+    def network_arch_cell_arch_decode(self):
+        actual_path, network_space = self.viterbi_decode()
+        assert len(actual_path) == 12, 'invalid actual_path length {}'.format(len(actual_path))
+        nb_edges = len([_j for _i in range(self.run_config.steps) for _j in range(_i+2)])
+        # TODO: property object cannot be interpreted as an integer
+        nb_choices = 7
+
+        gene = []
+
+        def _parse(cell_alphas, steps):
+            _gene = []
+            start = 0
+            n = 2  # offset
+            for i in range(steps):
+                end = start + n
+                # TODO: reconfirm Zero operation index
+                edges = sorted(range(start, end), key=lambda x: -np.max(cell_alphas[x, :-1]))
+                top1edge = edges[0]  # edge index
+                best_op_index = np.argmax(cell_alphas[top1edge])  #
+                _gene.append([top1edge, best_op_index])
+                start = end
+                n += 1  # move offset
+            return _gene
+
+        for i in range(self.nb_layers):
+            next_scale = actual_path[i]
+            cell_index = get_list_index(i, next_scale)
+            # just include None edge, probs of all operation are all zero, it will never be selected
+            alpha = np.zeros((nb_edges, nb_choices)) # shape as [n, 7]
+            for op_index, op in enumerate(self.cells[cell_index].ops):
+                if op is None:
+                    # None operations are not all at index 0, in the case of multi-nodes
+                    continue
+                else:
+                    mixededge = op.mobile_inverted_conv
+                    assert mixededge.__str__().startswith('MixedEdge'), 'Error in cell_arch_decode'
+                    alpha[op_index] = mixededge.AP_path_alpha.data.cpu().numpy()
+            _gene = _parse(alpha, self.run_config.steps)
+
+            gene.append(_gene)
+
+        #print(len(gene))
+        assert len(gene) == 12, 'Error in network_arch_cell_arch_decode'
+        return actual_path, network_space, np.array(gene)
+
+
+
+
+

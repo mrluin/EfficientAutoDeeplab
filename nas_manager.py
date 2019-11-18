@@ -561,21 +561,20 @@ class ArchSearchRunManager:
             # get cell_arch_info and network_arch_info from genotype decode and viterbi_decode
             # construct cells and network, according to cell_arch_info and network_arch_info
             # obtain the whole network
-            actual_path, network_space = self.net.viterbi_decode()
-            cell_arch = self.net.cell_arch_decode()
-            print(cell_arch.shape) # shape as [45, 1, 2] i.e. nb_cells, nb_nodes, chosen_edge_index, chosen_operation
-            print('cell arch:\n', cell_arch)
+            actual_path, network_space, gene = self.net.network_arch_cell_arch_decode()
+            #print('\t-> actual_path:', actual_path)
+            #print('\t-> network_space:', network_space)
+            #print('\t-> gene:\n', gene)
 
 
             # obtain new_auto_deeplab
-            normal_net = NewNetwork(network_space, cell_arch, self.run_manager.run_config.filter_multiplier,
+            normal_net = NewNetwork(actual_path, gene, self.run_manager.run_config.filter_multiplier,
                                     self.run_manager.run_config.block_multiplier, self.run_manager.run_config.steps,
                                     self.run_manager.run_config.nb_layers, self.run_manager.run_config.nb_classes,
                                     init_channels=128, conv_candidates=self.run_manager.run_config.conv_candidates)
             # TODO: device
-            print(normal_net.device)
-            print('normal_net construct completely!')
-            print('Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
+            print('\t-> normal_net construct completely!')
+            print('\t-> Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
             # TODO: fix issues in convert_to_normal_net()
             # TODO: network level need split cells
             # obtain normal cells
@@ -586,9 +585,10 @@ class ArchSearchRunManager:
 
             # TODO: get_network_config,
             # layer scale cell, selected edge_index, chosen operation.
-            def get_network_config(cell_arch, actual_path):
+            '''
+            def get_network_arch(cell_arch, actual_path):
                 config_log = 'Network-Level and Cell-Level Configs\n'
-                config_log += 'Stem0, Stem1\n'
+                config_log += 'Stem0\n Stem1\n'
                 config_log += 'Layer0 Scale0 {}\n'.format('stem2')
                 for i in range(self.run_manager.run_config.nb_layers):
                     next_scale = actual_path[i] # the next_scale
@@ -612,14 +612,30 @@ class ArchSearchRunManager:
                     raise ValueError('invalid last_scale {}'.format(last_scale))
 
                 return config_log
+                '''
 
             # TODO: test config_log
 
-            json.dump(normal_net.config, open(os.path.join(self.run_manager.path, 'learned_net/net.config'), 'w'), indent=4)
+            def get_network_config(normal_net, cell_arch, actual_path):
+                nb_layers = 12
+                config = {
+                    'stem0': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
+                    'stem1': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
+                    'stem2': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
+                }
+                for i in range(nb_layers):
+                    next_scale = actual_path[i]
+                    config['layer {}, scale {} cell'.format(i+1, next_scale)] = normal_net.cells[i].module_str()
+                config['Aspp'] = normal_net.aspp
+
+            config = get_network_config(normal_net, gene, actual_path)
+            print('\t-> network config construct done')
+            # done
+            json.dump(config, open(os.path.join(self.run_manager.path, 'learned_net/net_config.txt'), 'w'), indent=4)
             # done
             json.dump(
                 self.run_manager.run_config.config,
-                open(os.path.join(self.run_manager.path, 'learned_net/run.config'), 'w'),
+                open(os.path.join(self.run_manager.path, 'learned_net/run_config.txt'), 'w'),
                 indent=4
             )
             # done
@@ -628,6 +644,7 @@ class ArchSearchRunManager:
                  'dataset': self.run_manager.run_config.dataset},
                 os.path.join(self.run_manager.path, 'learned_net/init')
             )
+            print('\t-> normal_network_config, run_config, ckpt saved done!')
 
     def gradient_step(self):
 

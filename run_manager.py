@@ -86,17 +86,17 @@ class RunConfig:
 
         self.conv_candidates = conv_candidates
 
-
         self._data_provider = None
         self._train_iter, self._valid_iter, self._test_iter = None, None, None
         self.optimizer = None
     @property
     def config(self):
         config = {
-            'type': type(self)
+            #'type': type(self)
         }
         for key in self.__dict__:
-            if not key.startswith('_'):
+            # SGD cannot be serializable
+            if not key.startswith('_') and not key.startswith('optimizer'):
                 config[key] = self.__dict__[key]
         return config
 
