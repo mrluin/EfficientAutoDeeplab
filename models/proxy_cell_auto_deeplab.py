@@ -40,23 +40,23 @@ class ProxyAutoDeepLab(MyNetwork):
 
         # three init stems
         self.stem0 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(64)),
+            ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(32)),
             ('relu', nn.ReLU(inplace=True))
         ]))
         self.stem1 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(64)),
+            ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(32)),
             ('relu', nn.ReLU(inplace=True))
         ]))
         self.stem2 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(64, 128, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(128)),
+            ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(64)),
             ('relu', nn.ReLU(inplace=True))
         ]))
 
-        prev_prev_c = 64
-        prev_c = 128
+        prev_prev_c = 32
+        prev_c = 64
         for i in range(self.nb_layers):
             if i == 0:
                 cell1 = Proxy_cell(self.run_config, self.conv_candidates, 4, prev_c=prev_c, prev_prev_c=None, types=['same'], )
@@ -64,7 +64,7 @@ class ProxyAutoDeepLab(MyNetwork):
                 self.cells += [cell1]
                 self.cells += [cell2]
             elif i == 1:
-                cell1 = Proxy_cell(self.run_config, self.conv_candidates, 4, prev_c=-1, prev_prev_c=128, types=['up','same'])
+                cell1 = Proxy_cell(self.run_config, self.conv_candidates, 4, prev_c=-1, prev_prev_c=64, types=['up','same'])
                 cell2 = Proxy_cell(self.run_config, self.conv_candidates, 8, prev_c=-1, prev_prev_c=None, types=['reduction','same'])
                 cell3 = Proxy_cell(self.run_config, self.conv_candidates, 16, prev_c=-1, prev_prev_c=None, types=['reduction'])
                 self.cells += [cell1]

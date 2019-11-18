@@ -144,15 +144,18 @@ class NewNetwork(MyNetwork):
 
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, half_init_channels, 3, 2, 1)),
-            ('bn', nn.BatchNorm2d(half_init_channels))
+            ('bn', nn.BatchNorm2d(half_init_channels)),
+            ('relu', nn.ReLU(inplace=True)),
         ]))
         self.stem1 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(half_init_channels, half_init_channels, 3, stride=1, padding=1)),
-            ('bn', nn.BatchNorm2d(half_init_channels))
+            ('bn', nn.BatchNorm2d(half_init_channels)),
+            ('relu', nn.ReLU(inplace=True)),
         ]))
         self.stem2 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(half_init_channels, init_channels, 3, 2, 1)),
-            ('bn', nn.BatchNorm2d(init_channels))
+            ('bn', nn.BatchNorm2d(init_channels)),
+            ('relu', nn.ReLU(inplace=True)),
         ]))
         self.cells = nn.ModuleList()
         # network_arch 12, 4, 3, from layer to scale choose which operation
@@ -210,7 +213,7 @@ class NewNetwork(MyNetwork):
         scale32_outc = int(self.filter_multiplier * self.block_multiplier * 32 / 4)
 
         last_scale = actual_path[-1]
-        print(last_scale)
+        #print(last_scale)
         if last_scale == 0:
             self.aspp = ASPP(scale4_outc, self.nb_classes, 24, self.nb_classes)
         elif last_scale == 1:
