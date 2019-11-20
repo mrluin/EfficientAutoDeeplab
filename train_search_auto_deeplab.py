@@ -143,9 +143,11 @@ if __name__ == '__main__':
         run_config, arch_search_config, args.conv_candidates
     )
     '''
+
     auto_deeplab = SplitFabricAutoDeepLab(
         run_config, args.conv_candidates
     )
+
 
     # auto_deeplab._modules : stem0 stem1 stem2 stem3, cells, aspp4, aspp8, aspp16, aspp32
     # cells: cells_index, cell

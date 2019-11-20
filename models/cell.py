@@ -193,7 +193,7 @@ class Split_Cell(MyModule):
 
     def forward(self, s0, s1):
         #print(s0)
-        print(detect_none_inputs(s0, s1))
+        #print(detect_none_inputs(s0, s1))
         if s0 is not None:
             s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
@@ -207,7 +207,7 @@ class Split_Cell(MyModule):
                 if h is None or self.ops[branch_index] is None:
                     #print(branch_index)
                     continue
-                print('ops index', index)
+                #print('ops index', index)
                 new_state = self.ops[branch_index](h) # one mixed edge output
                 new_states.append(new_state)
             s = sum(new_states) # output of a node

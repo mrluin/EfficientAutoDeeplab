@@ -709,6 +709,10 @@ class ArchSearchRunManager:
                 print('hook None')
             #print(module.AP_path_wb.requires_grad)
 
+        def hook(grad):
+            if grad is not None:
+                print(grad)
+                print('got it')
 
         assert isinstance(self.arch_search_config, GradientArchSearchConfig)
 
@@ -726,7 +730,7 @@ class ArchSearchRunManager:
 
         # TODO: MixedEdge !!!
         MixedEdge.MODE = self.arch_search_config.grad_binary_mode # full_v2
-        SplitFabricAutoDeepLab.MODE = self.arch_search_config.grad_binary_mode
+        #SplitFabricAutoDeepLab.MODE = self.arch_search_config.grad_binary_mode
         #print('MixedEdge.MODE:',MixedEdge.MODE)
         time1 = time.time()
 
@@ -741,9 +745,11 @@ class ArchSearchRunManager:
 
         #print('='*30)
         #print(self.net._unused_modules)
-        self.net.reset_binary_gates()
-        for module in self.net.redundant_modules:
-            module.register_backward_hook(backward_hook)
+        self.net.reset_binary_gates() # set active and inactive
+
+        for param in self.net.cell_binary_gates():
+            param.register_hook(hook)
+
         # print mixedop binarygates
         #print('mixed_operation binary gates, after binarize')
         #for param in self.net.cell_binary_gates():
@@ -751,12 +757,11 @@ class ArchSearchRunManager:
 
         self.net.unused_modules_off()
 
-
        # print(self.net._unused_modules)
         #print('forward:')
-        print('\t before forward:')
+        #print('\t before forward:')
         logits = self.run_manager.net(datas)
-        print('\t after forward:')
+       # print('\t after forward:')
         # print mixedop binarygates
         #print('mixed_operation binary gates, after forward')
         #for param in self.net.cell_binary_gates():
@@ -794,20 +799,25 @@ class ArchSearchRunManager:
         #print('\tAfter self.net.zero_grad()')
         #print(self.net.binary_gates())
         #print('backward')
-        print('\t before backward')
+        #print('\t before backward')
         loss.backward()
-        print('\t after backward')
+        for param in self.net.cell_binary_gates():
+            if param.grad is not None:
+                print(param.grad)
+        for m in self.net.redundant_modules:
+            if m.AP_path_wb.grad is not None:
+                print('got it again')
+       # print('\t after backward')
         #print('mixed_operation binary gates after backward')
-        #for param in self.net.cell_binary_gates():
-        #    print(param.grad)
+
         # print binary_gates.grad
         # but some mixed edge has no grad
         # for param in self.net.binary_gates():
         #    print(param.grad)
 
         # TODO: change mode
-        MixedEdge.MODE = 'two'
-        SplitFabricAutoDeepLab.MODE  = 'two'
+        #MixedEdge.MODE = 'two'
+        #SplitFabricAutoDeepLab.MODE  = 'two'
 
         self.net.set_arch_param_grad() # get old_alphas
 

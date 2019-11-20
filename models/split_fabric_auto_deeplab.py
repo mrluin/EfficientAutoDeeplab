@@ -9,8 +9,7 @@ from queue import Queue
 
 from genotype import PRIMITIVES, Genotype
 from modules.operations import *
-from run_manager import *
-from nas_manager import *
+from run_manager import RunConfig
 from utils.common import save_inter_tensor, get_cell_decode_type, get_list_index_split
 from utils.common import get_next_scale, get_list_index, get_prev_c, delta_ij, detach_variable
 from collections import OrderedDict
@@ -470,7 +469,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
             self.tmp_active_alphas = torch.gather(_fabric_path_alpha, -1, self.active_index)
             self.tmp_inactive_alphas = torch.gather(_fabric_path_alpha, -1, self.inactive_index) # shape as [12, 4, 1]
         else:
-            probs = self.probs_over_paths.data
+            probs = self.probs_over_paths.data.to(self.fabric_path_alpha.device)
             for l in range(self.nb_layers):
                 for s in range(4):
                     for i in range(self.n_choices):
@@ -515,13 +514,13 @@ class SplitFabricAutoDeepLab(MyNetwork):
         elif SplitFabricAutoDeepLab.MODE == 'full_v2':
             def run_function(candidate_paths, active_id, cell_index):  # change active_id to cell_index
                 def fforward(_prev_prev_c, _prev_c):
-                    print('_forward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    #print('_forward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
                     return candidate_paths[cell_index](_prev_prev_c, _prev_c)
                 return fforward
 
             def backward_function(candidate_paths, active_id, cell_index, binary_gates):
                 def backward(_prev_prev_c, _prev_c, _output, grad_output):
-                    print('_backward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    #print('_backward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
                     # print('_backward for layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
                     # print('before super_network backwards _forward: ',
                     #      candidate_paths[cell_index].ops[1].mobile_inverted_conv.AP_path_wb.grad)
@@ -549,6 +548,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
             )
         else:
             # for None
+            #print('go this')
             output = self.cells[cell_index](prev_prev_c, prev_c)
         return output
     def forward(self, x):
@@ -1006,6 +1006,17 @@ class SplitFabricAutoDeepLab(MyNetwork):
             entropy = module_entropy + entropy
         return entropy
 
+
+    '''
+        # have some modification on redundant_modules
+        
+        redundant_modules should based on the selected path, rather than
+        the whole super network.
+    
+    
+    '''
+
+
     @property
     def redundant_modules(self):
         # proxy related to modules
@@ -1026,8 +1037,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     def set_arch_param_grad(self):
         # set AP_path_alpha.grad in each mixed operation
-        self.set_fabric_arch_param_grad()
-
+        #self.set_fabric_arch_param_grad()
         for m in self.redundant_modules:
             m.set_arch_param_grad()
 
