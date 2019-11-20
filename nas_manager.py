@@ -5,12 +5,13 @@ import time
 import logging
 import json
 
+from models.split_fabric_auto_deeplab import SplitFabricAutoDeepLab
 from run_manager import *
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
 from utils.common import get_monitor_metric
 from utils.metrics import Evaluator
-from modules.mixed_op import *
+from modules.mixed_op import MixedEdge
 from utils.common import count_parameters
 from utils.common import get_list_index
 from models.new_model import NewNetwork
@@ -202,7 +203,13 @@ class ArchSearchRunManager:
         self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.run_manager.run_config.train_batch_size
         self.run_manager.run_config.valid_loader.batch_sampler.drop_last = False
 
+
+        #print('before validate net active_index')
+        #print(self.net.active_index)
         self.net.set_chosen_op_active()
+        #print('validate net active_index')
+        #print(self.net.active_index)
+
         self.net.unused_modules_off()
         # TODO: network_level and cell_level decode in net_flops() method
         # TODO: valid on validation set (from training set) under train mode
@@ -272,11 +279,11 @@ class ArchSearchRunManager:
             for i, (datas, targets) in enumerate(data_loader):
 
                 # TODO: evaluate memory allocation
-                if i == 5 : break
+                if i == 1 : break
 
-                print('before datas')
-                print('memory_allocated', torch.cuda.memory_allocated())
-                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+                #print('before datas')
+                #print('memory_allocated', torch.cuda.memory_allocated())
+                #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -285,9 +292,9 @@ class ArchSearchRunManager:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end)
 
-                print('after datas')
-                print('memory_allocated', torch.cuda.memory_allocated())
-                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+                #print('after datas')
+                #print('memory_allocated', torch.cuda.memory_allocated())
+                #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
 
                 # adjust warmup_lr
@@ -300,17 +307,19 @@ class ArchSearchRunManager:
                 #    param_group['lr'] = warmup_lr
 
                 self.net.reset_binary_gates()
+                #print('warm_up net active_index')
+                #print(self.net.active_index)
                 self.net.unused_modules_off()
 
-                print('after binarize')
-                print('memory_allocated', torch.cuda.memory_allocated())
-                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+                #print('after binarize')
+                #print('memory_allocated', torch.cuda.memory_allocated())
+                #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
                 logits = self.net(datas)
 
-                print('after forward')
-                print('memory_allocated', torch.cuda.memory_allocated())
-                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+                #print('after forward')
+                #print('memory_allocated', torch.cuda.memory_allocated())
+                #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
                 '''
                 if self.run_manager.run_config.label_smoothing > 0.:
@@ -335,9 +344,9 @@ class ArchSearchRunManager:
                         '''
 
                 loss.backward()
-                print('after backwards')
-                print('memory_allocated', torch.cuda.memory_allocated())
-                print('max_memory_allocated', torch.cuda.max_memory_allocated())
+                #print('after backwards')
+                #print('memory_allocated', torch.cuda.memory_allocated())
+                #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
                 self.run_manager.optimizer.step()
                 self.net.unused_modules_back()
@@ -349,7 +358,7 @@ class ArchSearchRunManager:
                 acc = evaluator.Pixel_Accuracy()
                 miou = evaluator.Mean_Intersection_over_Union()
                 fscore = evaluator.Fx_Score()
-
+            
                 losses.update(loss.data.item(), datas.size(0))
                 accs.update(acc, datas.size(0))
                 mious.update(miou, datas.size(0))
@@ -377,21 +386,27 @@ class ArchSearchRunManager:
                     )
                     # TODO: do not use self.write_log
                     self.run_manager.write_log(batch_log, 'train')
+                #break
 
+            # TODO: in warm_up phase, does not update network_arch_parameters,
+            # the super_net path used in validate could be invalid.
             # perform validate at the end of each epoch
             valid_loss, valid_acc, valid_miou, valid_fscore, flops, params = self.validate()
             valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M\tparams{7:}M'\
                 .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops, params / 1e6)
             valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
 
+
             # target_hardware is None by default
             if self.arch_search_config.target_hardware not in [None, 'flops']:
                 raise NotImplementedError
 
             self.run_manager.write_log(valid_log, 'valid')
+
             # continue warmup phrase
 
             self.warmup = epoch + 1 < warmup_epochs
+
             # To save checkpoint in warmup phase at specific frequency.
             if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
                 state_dict = self.net.state_dict()
@@ -409,6 +424,7 @@ class ArchSearchRunManager:
                 self.run_manager.save_model(epoch, checkpoint, is_best=False,
                                             checkpoint_file_name='checkpoint-warmup.pth.tar')
 
+
     def train(self, fix_net_weights=False):
         data_loader = self.run_manager.run_config.train_loader
         iter_per_epoch = len(data_loader)
@@ -418,8 +434,11 @@ class ArchSearchRunManager:
             print('Train Phase close for debug')
             arch_update_flag = 0
 
+        # get fabric_path_alpha and AP_path_alpha
         arch_param_num = len(list(self.net.architecture_parameters()))
+        # get fabric_path_wb and AP_path_wb
         binary_gates_num = len(list(self.net.binary_gates()))
+        # get network weight params
         weight_param_num = len(list(self.net.weight_parameters()))
 
         print(
@@ -513,12 +532,14 @@ class ArchSearchRunManager:
                         self.run_manager.write_log(batch_log, 'train', should_print=True)
 
                 # TODO: skip arch_param update in the first epoch
-                if epoch > 0:
+                # epoch >= 0 used to debug in gradient_step
+                if epoch >= 0:
                     if not fix_net_weights:
                         for j in range(update_schedule.get(i, 0)): # step i update arch_param times
                             start_time = time.time()
                             if isinstance(self.arch_search_config, GradientArchSearchConfig):
                                 # target_hardware is None, exp_value is None by default
+                                #print(self.net.inactive_index)
                                 time_log, arch_loss, arch_acc, arch_miou, arch_fscore, exp_value = self.gradient_step()
                                 if i % self.run_manager.run_config.print_arch_param_step_freq == 0 or i + 1 == iter_per_epoch:
                                     used_time = time.time() - start_time
@@ -681,6 +702,14 @@ class ArchSearchRunManager:
 
     def gradient_step(self):
 
+        def backward_hook(module, input, output):
+            if (module.AP_path_wb.grad) is not None:
+                print('hook not None')
+            if module.AP_path_wb.grad is None:
+                print('hook None')
+            #print(module.AP_path_wb.requires_grad)
+
+
         assert isinstance(self.arch_search_config, GradientArchSearchConfig)
 
         # if data_batch is None, equals to train_batch_size
@@ -697,6 +726,7 @@ class ArchSearchRunManager:
 
         # TODO: MixedEdge !!!
         MixedEdge.MODE = self.arch_search_config.grad_binary_mode # full_v2
+        SplitFabricAutoDeepLab.MODE = self.arch_search_config.grad_binary_mode
         #print('MixedEdge.MODE:',MixedEdge.MODE)
         time1 = time.time()
 
@@ -712,15 +742,25 @@ class ArchSearchRunManager:
         #print('='*30)
         #print(self.net._unused_modules)
         self.net.reset_binary_gates()
-
-        #for param in self.net.binary_gates():
-        #    print(param)
+        for module in self.net.redundant_modules:
+            module.register_backward_hook(backward_hook)
+        # print mixedop binarygates
+        #print('mixed_operation binary gates, after binarize')
+        #for param in self.net.cell_binary_gates():
+        #    print(param.grad)
 
         self.net.unused_modules_off()
 
-       # print(self.net._unused_modules)
 
+       # print(self.net._unused_modules)
+        #print('forward:')
+        print('\t before forward:')
         logits = self.run_manager.net(datas)
+        print('\t after forward:')
+        # print mixedop binarygates
+        #print('mixed_operation binary gates, after forward')
+        #for param in self.net.cell_binary_gates():
+        #    print(param.grad)
         #logits = self.net(datas)
         time3 = time.time()
         # loss
@@ -753,8 +793,13 @@ class ArchSearchRunManager:
         self.run_manager.net.zero_grad()
         #print('\tAfter self.net.zero_grad()')
         #print(self.net.binary_gates())
-
+        #print('backward')
+        print('\t before backward')
         loss.backward()
+        print('\t after backward')
+        #print('mixed_operation binary gates after backward')
+        #for param in self.net.cell_binary_gates():
+        #    print(param.grad)
         # print binary_gates.grad
         # but some mixed edge has no grad
         # for param in self.net.binary_gates():
@@ -762,6 +807,7 @@ class ArchSearchRunManager:
 
         # TODO: change mode
         MixedEdge.MODE = 'two'
+        SplitFabricAutoDeepLab.MODE  = 'two'
 
         self.net.set_arch_param_grad() # get old_alphas
 
@@ -772,6 +818,7 @@ class ArchSearchRunManager:
             self.net.rescale_updated_arch_param() # rescale updated arch_params according to old_alphas and new_alphas
         self.net.unused_modules_back()
         MixedEdge.MODE = None
+        SplitFabricAutoDeepLab.MODE = None
         time4 = time.time()
         gradient_step_time_log = 'Data time: {:.4f},\tInference time: {:.4f},\tBackward time: {:.4f}\n'.format(time2-time1, time3-time2, time4-time3)
         # TODO: need modification

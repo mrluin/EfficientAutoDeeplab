@@ -12,13 +12,15 @@ from modules.operations import *
 from run_manager import *
 from nas_manager import *
 from utils.common import save_inter_tensor, get_cell_decode_type, get_list_index_split
-from utils.common import get_next_scale, get_list_index, get_prev_c
+from utils.common import get_next_scale, get_list_index, get_prev_c, delta_ij, detach_variable
 from collections import OrderedDict
 from models.new_model import network_layer_to_space
+from modules.mixed_op import MixedEdge
+
 
 class SplitFabricAutoDeepLab(MyNetwork):
     MODE = None
-    def __init__(self, run_config: RunConfig, arch_search_config: ArchSearchConfig, conv_candidates):
+    def __init__(self, run_config: RunConfig, conv_candidates):
         super(SplitFabricAutoDeepLab, self).__init__()
 
         self._redundant_modules = None
@@ -26,7 +28,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         self.cells = nn.ModuleList()
 
         self.run_config = run_config
-        self.arch_search_config = arch_search_config
+        #self.arch_search_config = arch_search_config
         self.conv_candidates = conv_candidates
 
         self.nb_layers = self.run_config.nb_layers
@@ -38,7 +40,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
         # TODO: active_index and inactive_index should not be list, but tensors
         # and list_index is calculate by layer and scales, active_index is initialized as -1
-        self.active_index = torch.zeros(self.nb_layers, 4, 1) - 1
+        self.active_index = torch.zeros((self.nb_layers, 4, 1), dtype=torch.int64)
 
         self.inactive_index = None # inactive_index.shape is not fixed, 'two' mode is one and other mode are two
         self.tmp_active_alphas = None
@@ -182,22 +184,50 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     @property
     def probs_over_paths(self):
-        # confirmed
-        probs = F.softmax(self.fabric_path_alpha, dim=-1)
+        # todo fix the invalid value issue in scale zero and scale three
+        probs = torch.zeros(self.nb_layers, 4, 3)
+        for layer in range(self.nb_layers):
+            for scale in range(4):
+                if scale == 0:
+                    probs[layer][scale][1:] = F.softmax(self.fabric_path_alpha.data[layer][scale][1:], dim=-1)
+                elif scale == 1 or scale == 2:
+                    probs[layer][scale] = F.softmax(self.fabric_path_alpha.data[layer][scale], dim=-1)
+                elif scale == 3:
+                    probs[layer][scale][:2] = F.softmax(self.fabric_path_alpha.data[layer][scale][:2], dim=-1)
         return probs # [12, 4, 3]
 
     @property
     def chosen_index(self):
         # confirmed
-        probs = self.probs_over_paths.data#.cpu().numpy()
+        probs = self.probs_over_paths
         index = torch.argmax(probs, dim=-1, keepdim=True)#np.argmax(probs, axis=-1) # shape as [self.nb_layers, scales]
         # shape as [12, 4, 1]
+        # torch.argmax returns int64
         return index, torch.gather(probs, -1, index)
+
+    @property
+    def active_fabric_path(self):
+        # confirmed
+        return self.active_index # tensor with shape [12,4,3]
+
+    def set_chosen_path_active(self):
+        # confirmed
+        index, _ = self.chosen_index
+        # index with shape [12, 4, 1], self.active_index is initialized all the -1
+        #for l in self.nb_layers:
+        #    for s in range(4):
+        #        self.active_index[l][s] = index[l][s]
+        self.active_index = index
+        for l in range(self.nb_layers):
+            for s in range(4):
+                # self.inactive_index is also tensor, with shape [12, 4, 2]
+                self.inactive_index[l][s] = torch.from_numpy(np.array([_i for _i in range(0, index[l][s][0])] + \
+                                                                      [_i for _i in range(index[l][s][0]+1, self.n_choices)]))
 
     @property
     def random_index(self):
         # cannot perform random index for each node in fabric, the nodes should have spatial wise relationship.
-        active_index = np.zeros((self.nb_layers, 4, 1))
+        active_index = np.zeros((self.nb_layers, 4, 1), dtype=torch.int64)
         random_result = []
         last = 0
         layer = 0
@@ -278,24 +308,6 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
 
 
-    @property
-    def active_fabric_path(self):
-        # confirmed
-        return self.active_index # tensor with shape [12,4,3]
-
-    def set_chosen_path_active(self):
-        # confirmed
-        index, _ = self.chosen_index
-        # index with shape [12, 4, 1], self.active_index is initialized all the -1
-        #for l in self.nb_layers:
-        #    for s in range(4):
-        #        self.active_index[l][s] = index[l][s]
-        self.active_index = index
-        for l in range(self.nb_layers):
-            for s in range(4):
-                # self.inactive_index is also tensor, with shape [12, 4, 2]
-                self.inactive_index[l][s] = torch.from_numpy(np.array([_i for _i in range(0, index[l][s][0])] + \
-                                                                      [_i for _i in range(index[l][s][0]+1, self.n_choices)]))
     def binarize(self):
         #print('super_network binarize')
         # confirmed
@@ -307,10 +319,12 @@ class SplitFabricAutoDeepLab(MyNetwork):
         self.current_prob_over_paths = torch.zeros_like(probs)
 
         if SplitFabricAutoDeepLab.MODE == 'two':
-            self.inactive_index = torch.zeros(self.nb_layers, 4, 1)
+            self.inactive_index = torch.zeros((self.nb_layers, 4, 1), dtype=torch.int64)
         else:
-            self.inactive_index = torch.zeros(self.nb_layers, 4, 2)
+            self.inactive_index = torch.zeros((self.nb_layers, 4, 2), dtype=torch.int64)
 
+
+        # todo this reset operation does not account for
         #self.active_index = torch.zeros(self.nb_layers, 4, 1) - 1
         #print(self.fabric_path_alpha)
 
@@ -432,11 +446,14 @@ class SplitFabricAutoDeepLab(MyNetwork):
         if self.fabric_path_alpha.grad is None:
             self.fabric_path_alpha.grad = torch.zeros_like(self.fabric_path_alpha.data)
 
+        _fabric_path_alpha = self.fabric_path_alpha.data.cpu()
         if SplitFabricAutoDeepLab.MODE == 'two':
             # [12, 4, 1] concat [12, 4, 1] = [12, 4, 2]
-            involved_idx = torch.concat([self.active_index, self.inactive_index], dim=-1)
+            #print(self.active_index, self.inactive_index)
+            involved_idx = torch.cat([self.active_index, self.inactive_index], dim=-1) # CPU VERSION
             # shape [12, 4, 2]
-            probs_slice = F.softmax(torch.gather(self.fabric_path_alpha, -1, involved_idx), -1)
+            #print(self.fabric_path_alpha.data.device, involved_idx.device)
+            probs_slice = F.softmax(torch.gather(_fabric_path_alpha, -1, involved_idx), -1).to(self.fabric_path_alpha.device)
             for l in range(self.nb_layers):
                 for s in range(4):
                     # compute for each node in fabric
@@ -450,8 +467,8 @@ class SplitFabricAutoDeepLab(MyNetwork):
             # set_grad -> optimizer -> if two rescale
             # saving current grad
             # shape as [12, 4, 1]
-            self.tmp_active_alphas = torch.gather(self.fabric_path_alpha, -1, self.active_index)
-            self.tmp_inactive_alphas = torch.gather(self.fabric_path_alpha, -1, self.inactive_index) # shape as [12, 4, 1]
+            self.tmp_active_alphas = torch.gather(_fabric_path_alpha, -1, self.active_index)
+            self.tmp_inactive_alphas = torch.gather(_fabric_path_alpha, -1, self.inactive_index) # shape as [12, 4, 1]
         else:
             probs = self.probs_over_paths.data
             for l in range(self.nb_layers):
@@ -464,9 +481,10 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     def rescale_updated_fabric_arch_param(self):
         # only under the case of 'two'
+        _fabric_path_alpha = self.fabric_path_alpha.data.cpu()
         involved_index = torch.concat([self.active_index, self.inactive_index], dim=-1) # [12, 4, 1] concat [12, 4, 1]
         old_alphas = torch.concat([self.tmp_active_alphas, self.tmp_inactive_alphas], dim=-1) # shape as [12, 4, 2]
-        new_alphas = torch.gather(self.fabric_path_alpha.data, -1, involved_index, dim=-1) # shape as [12, 4, 2]
+        new_alphas = torch.gather(_fabric_path_alpha, -1, involved_index, dim=-1) # shape as [12, 4, 2]
 
         offset = None # shape as [self.nb_layers, 4, 1]
         for l in range(self.nb_layers):
@@ -478,58 +496,68 @@ class SplitFabricAutoDeepLab(MyNetwork):
                 for index in involved_index[l][s]:
                     self.fabric_path_alpha.data[l][s][index] -= offset[l][s][0]
 
+    def _forward(self, layer, scale, cell_index, prev_prev_c, prev_c):
+
+        if SplitFabricAutoDeepLab.MODE == 'full' or SplitFabricAutoDeepLab.MODE == 'two':
+            output = 0
+            # cells have been appended in ordered
+            for _i in self.active_index[layer][scale]:
+                # next_scale = get_next_scale(_i, scale)
+                # cell_index = get_list_index_split(layer, scale, next_scale)
+                output_i = self.cells[cell_index](prev_prev_c, prev_c)
+                output = output + self.fabric_path_wb[layer][scale][_i] * output_i
+            for _i in self.inactive_index[layer][scale]:
+                # next_scale = get_next_scale(_i, scale)
+                # cell_index = get_list_index_split(layer, scale, next_scale)
+                output_i = self.cells[cell_index](prev_prev_c, prev_c)
+                output = output + self.fabric_path_wb[layer][scale][_i] * output_i.detach()
+
+        elif SplitFabricAutoDeepLab.MODE == 'full_v2':
+            def run_function(candidate_paths, active_id, cell_index):  # change active_id to cell_index
+                def fforward(_prev_prev_c, _prev_c):
+                    print('_forward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    return candidate_paths[cell_index](_prev_prev_c, _prev_c)
+                return fforward
+
+            def backward_function(candidate_paths, active_id, cell_index, binary_gates):
+                def backward(_prev_prev_c, _prev_c, _output, grad_output):
+                    print('_backward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    # print('_backward for layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    # print('before super_network backwards _forward: ',
+                    #      candidate_paths[cell_index].ops[1].mobile_inverted_conv.AP_path_wb.grad)
+                    binary_grads = torch.zeros_like(binary_gates.data)
+
+                    with torch.no_grad():
+                        for k in range(3):  # change len(candidate_paths) to 3
+                            if k != active_id:
+                                if _prev_prev_c is not None:
+                                    out_k = candidate_paths[cell_index](_prev_prev_c.data, _prev_c.data)
+                                else:
+                                    out_k = candidate_paths[cell_index](_prev_prev_c, _prev_c.data)
+                            else:
+                                out_k = _output.data
+                            grad_k = torch.sum(out_k * grad_output)
+                            binary_grads[layer][scale][k] = grad_k
+
+                    #        print('after super_network backwards _forward: ', candidate_paths[cell_index].ops[1].mobile_inverted_conv.AP_path_wb.grad)
+                    return binary_grads
+                return backward
+            output = SuperArchGradientFunction.apply(
+                prev_prev_c, prev_c, self.fabric_path_wb,
+                run_function(self.cells, self.active_index[layer][scale][0], cell_index),
+                backward_function(self.cells, self.active_index[layer][scale][0], cell_index, self.fabric_path_wb)
+            )
+        else:
+            # for None
+            output = self.cells[cell_index](prev_prev_c, prev_c)
+        return output
     def forward(self, x):
+
         size = x.size()[2:]
         intermediate_result = []
-
         x = self.stem0(x) # 1
         x = self.stem1(x) # 2
         x = self.stem2(x) # 4
-
-        def _forward(layer, scale, cell_index, prev_prev_c, prev_c):
-            if SplitFabricAutoDeepLab.MODE == 'full' or SplitFabricAutoDeepLab.MODE == 'two':
-                output = 0
-                # cells have been appended in ordered
-                for _i in self.active_index[layer][scale]:
-                    #next_scale = get_next_scale(_i, scale)
-                    #cell_index = get_list_index_split(layer, scale, next_scale)
-                    output_i = self.cells[cell_index](prev_prev_c, prev_c)
-                    output = output + self.fabric_path_wb[layer][scale][_i] * output_i
-                for _i in self.inactive_index[layer][scale]:
-                    #next_scale = get_next_scale(_i, scale)
-                    #cell_index = get_list_index_split(layer, scale, next_scale)
-                    output_i = self.cells[cell_index](prev_prev_c, prev_c)
-                    output = output + self.fabric_path_wb[layer][scale][_i] * output_i.detach()
-
-            elif SplitFabricAutoDeepLab.MODE == 'full_v2':
-                def run_function(candidate_paths, active_id, cell_index): # change active_id to cell_index
-                    def fforward(_prev_prev_c, _prev_c):
-                        if _prev_prev_c is not None:
-                            return candidate_paths[cell_index](_prev_prev_c.data, _prev_c.data)
-                        else:
-                            return candidate_paths[cell_index](_prev_prev_c, _prev_c.data)
-                    return fforward
-                def backward_function(candidate_paths, active_id, cell_index, binary_gates):
-                    def backward(_prev_prev_c, _prev_c, _output, grad_output):
-                        binary_grads = torch.zeros_like(binary_gates)
-                        with torch.no_grad():
-                            for k in range(3): # change len(candidate_paths) to 3
-                                if k != active_id:
-                                    out_k = candidate_paths[cell_index](_prev_prev_c, _prev_c)
-                                else:
-                                    out_k = _output.data
-                                grad_k = torch.sum(out_k * grad_output)
-                                binary_grads[layer][scale][k] = grad_k
-                        return binary_grads
-                    return backward
-                output = ArchGradientFunction.apply(
-                    x, self.fabric_path_wb, run_function(self.cells, self.active_index[layer][scale][0], cell_index),
-                    backward_function(self.cells, self.active_index[layer][scale][0], cell_index, self.fabric_path_wb)
-                )
-            else:
-                # for None
-                output = self.cells[cell_index](prev_prev_c, prev_c)
-            return output
 
         current_scale = 0
         prev_prev_c = None
@@ -547,201 +575,10 @@ class SplitFabricAutoDeepLab(MyNetwork):
             #    print('current_scale: ', current_scale)
             #    print('current_choice: ', self.active_index[layer][current_scale])
             cell_index = get_list_index_split(layer, current_scale, next_scale)
-            inter_feature = _forward(layer, current_scale, cell_index, prev_prev_c, prev_c)
+            inter_feature = self._forward(layer, current_scale, cell_index, prev_prev_c, prev_c)
             current_scale = next_scale
             intermediate_result.pop(0)
             intermediate_result.append([next_scale, inter_feature])
-            '''
-            if layer == 0:
-                #count = 0
-                scale = 0
-                if self.active_index[layer][scale] == 1:
-                    next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                    prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                    cell_index = get_list_index_split(layer, scale, next_scale)
-                    inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                    intermediate_result.pop(0)
-                    intermediate_result.append([next_scale, inter_feature])
-                elif self.active_index[layer][scale] == 2:
-                    next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                    prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                    cell_index = get_list_index_split(layer, scale, next_scale)
-                    inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                    intermediate_result.pop(0)
-                    intermediate_result.append([next_scale, inter_feature])
-            elif layer == 1:
-                if scale == 0:
-                    #count = 2
-                    if self.active_index[layer][scale][0] == 1:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-                elif scale == 1:
-                    count = 4
-                    if self.active_index[layer][scale][0] == 0:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-
-                #print(intermediate_result[-1][0])
-            elif layer == 2:
-                if scale == 0:
-                    count = 7
-                    if self.active_index[layer][scale][0] == 1:
-                        next_scale = get_next_scale(self.active_index[layer][scale], scale)
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, next_scale)
-                        cell_index = get_list_index_split(layer, scale, next_scale)
-                        inter_feature = _forward(layer, scale, cell_index, prev_prev_c, prev_c)
-                        intermediate_result.pop(0)
-                        intermediate_result.append([next_scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale+1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                elif scale == 1:
-                    count = 9
-                    if self.active_index[layer][scale][0] == 0:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale-1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale - 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale+1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                elif scale == 2:
-                    count = 12
-                    if self.active_index[layer][scale][0] == 0:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale -1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale - 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale+1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-
-                print(intermediate_result[-1][0])
-            else:
-                if scale == 0:
-                    count = (layer-3)*10 + 15
-                    if self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale+1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                elif scale == 1:
-                    count = (layer-3)*10 + 17
-                    if self.active_index[layer][scale][0] == 0:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale-1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale - 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale + 1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                elif scale == 2:
-                    count = (layer-3)*10 + 20
-                    if self.active_index[layer][scale][0] == 0:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale - 1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale - 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 2:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale + 1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale + 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                elif scale == 3:
-                    count = (layer-3)*10 + 23
-                    if self.active_index[layer][scale][0] == 0:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale - 1)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale - 1
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-                    elif self.active_index[layer][scale][0] == 1:
-                        prev_prev_c, prev_c = get_prev_c(intermediate_result, scale)
-                        inter_feature = _forward(layer, scale, count, prev_prev_c, prev_c)
-                        scale = scale
-                        intermediate_result.pop(0)
-                        intermediate_result.append([scale, inter_feature])
-
-                print(intermediate_result[-1][0])
-                '''
-
         last_scale = intermediate_result[-1][0]
 
         if last_scale == 0:
@@ -977,7 +814,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     def viterbi_search(self):
 
-        network_space = np.zeros((self.nb_layers, 4, 3))
+        network_space = torch.zeros((self.nb_layers, 4, 3))
         for layer in range(self.nb_layers):
             if layer == 0:
                 network_space[layer][0][1:] = F.softmax(self.fabric_path_alpha.data[layer][0][1:], dim=-1) * (
@@ -1128,6 +965,11 @@ class SplitFabricAutoDeepLab(MyNetwork):
             if 'fabric_path_wb' in name:
                 yield param
 
+    def binary_gates(self):
+        for name, param in self.named_parameters():
+            if 'fabric_path_wb' in name or 'AP_path_wb' in name:
+                yield param
+
     def weight_parameters(self):
         # network weight parameters
         for name, param in self.named_parameters():
@@ -1181,9 +1023,11 @@ class SplitFabricAutoDeepLab(MyNetwork):
         self.binarize()
         for m in self.redundant_modules:
             m.binarize()
+
     def set_arch_param_grad(self):
         # set AP_path_alpha.grad in each mixed operation
         self.set_fabric_arch_param_grad()
+
         for m in self.redundant_modules:
             m.set_arch_param_grad()
 
@@ -1261,7 +1105,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         prev = 0
         for layer in range(self.nb_layers):
             current_scale = prev
-            next_scale = actual_path[layer]
+            next_scale = int(actual_path[layer])
             prev_prev_c = False
             if next_scale == prev_prev:
                 prev_prev_c = True
@@ -1275,7 +1119,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
             prev_prev = prev
             prev = next_scale
 
-        last_scale = actual_path[-1]
+        last_scale = int(actual_path[-1])
         if last_scale == 0:
             log_str += 'Final:\t{}\n'.format(self.aspp4.module_str())
         elif last_scale == 1:
@@ -1291,6 +1135,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
         #best_result = self.decode_network()
         actual_path, _ = self.viterbi_search()
+        print(actual_path)
         #assert len(best_result) == self.run_config.nb_layers, 'Error in length of best_result'
         assert len(actual_path) == self.nb_layers, 'Error in actual_path of net.get_flops'
         flops = 0.
@@ -1305,17 +1150,22 @@ class SplitFabricAutoDeepLab(MyNetwork):
         inter_features = [[0, None], [0, x]]
         for layer in range(self.nb_layers):
             current_scale = prev_scale
-            next_scale = actual_path[layer]
+            next_scale = int(actual_path[layer])
             prev_prev_c, prev_c = get_prev_c(inter_features, next_scale)
             #type = get_cell_decode_type(current_scale, next_scale)
             index = get_list_index_split(layer, current_scale, next_scale)
+            #print('cell_index:  ',index)
+            #print('current_scale: ',current_scale)
+            #print('next_scale: ', next_scale)
+            #print('index: ', index)
+            #print(prev_prev_c, prev_c)
             frag_flop, out = self.cells[index].get_flops(prev_prev_c, prev_c)
             flops = flops + frag_flop
             prev_scale = next_scale
             inter_features.pop(0)
             inter_features.append([next_scale, out])
 
-        last_scale = actual_path[-1]
+        last_scale = int(actual_path[-1])
         if last_scale == 0:
             flop_aspp, output = self.aspp4.get_flops(inter_features[-1][1])
         elif last_scale == 1:
@@ -1327,7 +1177,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
         else:
             raise ValueError('invalid scale choice of {}'.format(last_scale))
 
-        return flop_stem0 + flop_stem1 + flop_stem2 + flops + flop_aspp
+        return flop_stem0 + flop_stem1 + flop_stem2 + flops + flop_aspp, output
 
     def convert_to_normal_net(self):
         # not used
@@ -1347,7 +1197,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     module._modules[m] = child.chosen_op # get the operation with max probability and apply to the path
                 else:
                     queue.put(child)
-        return SplitFabricAutoDeepLab(self.run_config, self.arch_search_config, self.conv_candidates)
+        return SplitFabricAutoDeepLab(self.run_config, self.conv_candidates)
 
     def network_arch_cell_arch_decode(self):
         actual_path, network_space = self.viterbi_decode()
@@ -1397,24 +1247,39 @@ class SplitFabricAutoDeepLab(MyNetwork):
         assert len(gene) == 12, 'Error in network_arch_cell_arch_decode'
         return actual_path, network_space, np.array(gene)
 
-class ArchGradientFunction(torch.autograd.Function):
+class SuperArchGradientFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, prev_prev_c, prev_c, binary_gates, run_func, backward_func):
+        #print('super_network _forward function')
         ctx.run_func = run_func
         ctx.backward_func = backward_func
 
-        detached_prev_prev_c = detach_variable(prev_prev_c)
+        if prev_prev_c is not None:
+            detached_prev_prev_c = detach_variable(prev_prev_c)
+        else: detached_prev_prev_c = None
         detached_prev_c = detach_variable(prev_c)
 
         with torch.enable_grad():
             output = run_func(detached_prev_prev_c, detached_prev_c)
-        ctx.save_for_backward(detached_prev_prev_c, detached_prev_c, output)
+        ctx.save_for_backward(detached_prev_prev_c , detached_prev_c, output)
+
         return output.data
+
     @staticmethod
     def backward(ctx, grad_outputs):
+        #print('super_network _backward function')
         detached_prev_prev_c, detached_prev_c, output = ctx.saved_tensors
-        grad_prev_prev_c = torch.autograd.grad(output, detached_prev_prev_c, grad_outputs, only_inputs=True)
-        grad_prev_c = torch.autograd.grad(output, detached_prev_c, grad_outputs, only_inputs=True)
-        binary_grads = ctx.backward_func(detached_prev_prev_c, detached_prev_c, output.data, grad_outputs.data)
+        #detached_prev_c, output = ctx.saved_tensors
+        #output = ctx.saved_tensors
+        # TODO: needs confirm
+        if detached_prev_prev_c is not None:
+            grad_prev_prev_c = torch.autograd.grad(output, detached_prev_prev_c, grad_outputs, only_inputs=True, retain_graph=True)
+        else: grad_prev_prev_c = None
+        grad_prev_c = torch.autograd.grad(output, detached_prev_c, grad_outputs, only_inputs=True, retain_graph=False)
+        if detached_prev_prev_c is not None:
+            binary_grads = ctx.backward_func(detached_prev_prev_c.data, detached_prev_c.data, output.data, grad_outputs.data)
+        else:
+            binary_grads = ctx.backward_func(detached_prev_prev_c, detached_prev_c.data, output.data, grad_outputs.data)
+        #print('in super_network backward:', binary_grads)
+        return  grad_prev_prev_c[0] if grad_prev_prev_c is not None else None, grad_prev_c[0], binary_grads, None, None
 
-        return  grad_prev_prev_c[0], grad_prev_c[0], binary_grads, None, None

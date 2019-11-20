@@ -2,11 +2,15 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-
-from modules.operations import *
-from modules.my_modules import *
-from utils.common import *
-from modules.mixed_op import *
+from collections import OrderedDict
+from modules.my_modules import MyNetwork, MyModule
+from modules.operations import ConvLayer, FactorizedIncrease, FactorizedReduce, \
+    MobileInvertedResidualBlock, MBInvertedConvLayer, Identity, ASPP
+from modules.mixed_op import MixedEdge, build_candidate_ops
+#from modules.operations import *
+#from modules.my_modules import *
+#from utils.common import *
+#from modules.mixed_op import *
 # get cell_arch and network_arch
 
 # based on proxy_cell_auto_deeplab

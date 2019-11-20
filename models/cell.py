@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from modules.operations import *
 from modules.mixed_op import *
 from genotype import PRIMITIVES
-
+from utils.common import detect_none_inputs
 from run_manager import *
 
 __all__ = ['Cell', 'Split_Cell']
@@ -193,6 +193,7 @@ class Split_Cell(MyModule):
 
     def forward(self, s0, s1):
         #print(s0)
+        print(detect_none_inputs(s0, s1))
         if s0 is not None:
             s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
@@ -204,7 +205,9 @@ class Split_Cell(MyModule):
             for index, h in enumerate(states):
                 branch_index = offset + index
                 if h is None or self.ops[branch_index] is None:
+                    #print(branch_index)
                     continue
+                print('ops index', index)
                 new_state = self.ops[branch_index](h) # one mixed edge output
                 new_states.append(new_state)
             s = sum(new_states) # output of a node
@@ -217,7 +220,9 @@ class Split_Cell(MyModule):
     def get_flops(self, prev_prev_c, prev_c):
         prev_prev_out = None
         flop_preprocess0 = 0.
-        if self.preprocess0 is not None:
+        if prev_prev_c is not None:
+            #print(self.prev_prev_c)
+            #print(prev_prev_c)
             flop_preprocess0, prev_prev_out = self.preprocess0.get_flops(prev_prev_c)
         flop_preprocess1, prev_out = self.preprocess1.get_flops(prev_c)
         states = [prev_prev_out, prev_out]
@@ -236,8 +241,8 @@ class Split_Cell(MyModule):
             offset += len(states)
             states.append(s)
 
-        concat_features = torch.concat([states[-self.steps:]], dim=-1)
-        flops_concat, out = count_conv_flop(self.final_conv1x1, concat_features)
+        concat_features = torch.cat(states[-self.steps:], dim=-1)
+        flops_concat, out = count_conv_flop(self.final_conv1x1, concat_features), self.final_conv1x1(concat_features)
 
         return flop_preprocess0 + flop_preprocess1 + flops + flops_concat, out
 

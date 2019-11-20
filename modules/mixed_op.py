@@ -129,6 +129,7 @@ class MixedEdge(MyModule):
             # when update architecture parameter
             def run_function(candidate_ops, active_id):
                 def forward(_x):
+                    print('_forward function for MixedOperation')
                     return candidate_ops[active_id](_x)
                 return forward
             '''
@@ -140,6 +141,8 @@ class MixedEdge(MyModule):
             # calculate binary_grads in backward pass
             def backward_function(candidate_ops, active_id, binary_gates):
                 def backward(_x, _output, grad_output):
+                    print('_backward function for MixedOperation')
+                    #print('in mixed operation')
                     binary_grads = torch.zeros_like(binary_gates.data)
                     with torch.no_grad():
                         for k in range(len(candidate_ops)):
@@ -151,13 +154,13 @@ class MixedEdge(MyModule):
                             binary_grads[k] = grad_k
                     return binary_grads
                 return backward
+
             # self.active_index is a array, pick item()
             output = ArchGradientFunction.apply(
                 x, self.AP_path_wb, run_function(self.candidate_ops, self.active_index[0]),
                 backward_function(self.candidate_ops, self.active_index[0], self.AP_path_wb)
             )
             # self.AP_path_wb requires_grad=True, have value but grad is None
-            #print(self.AP_path_wb.grad)
         else:
             # when training
             output = self.active_op(x)
@@ -237,13 +240,13 @@ class MixedEdge(MyModule):
 
     def set_arch_param_grad(self):
 
-        '''
+
         # where comes from
         if self.AP_path_wb.grad is None :
             print(self.AP_path_wb)
             print(self.active_op)
             #print(self.module_str)
-            '''
+
         # TODO: change line of binary_grads = self.AP_path_wb.grad.data
 
         if self.active_op.is_zero_layer():
@@ -309,10 +312,10 @@ class ArchGradientFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_outputs):
         detached_x, output = ctx.saved_tensors
-        grad_x = torch.autograd.grad(output, detached_x, grad_outputs, only_inputs=True)
 
+        grad_x = torch.autograd.grad(output, detached_x, grad_outputs, only_inputs=True)
         # compute gradient w.r.t. binary_gates
         binary_grads = ctx.backward_func(detached_x.data, output.data, grad_outputs.data)
-        #print(binary_grads)
+        #print('in mixed_operation backward:', binary_grads)
         # return value related to forward arguments
         return grad_x[0], binary_grads, None, None

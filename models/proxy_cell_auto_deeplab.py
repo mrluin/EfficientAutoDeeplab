@@ -15,7 +15,7 @@ from utils.common import get_prev_c
 from utils.common import get_cell_decode_type
 from utils.common import get_list_index
 from utils.common import count_normal_conv_flop
-from utils.common import network_layer_to_space
+from models.new_model import network_layer_to_space
 from collections import OrderedDict
 
 class ProxyAutoDeepLab(MyNetwork):

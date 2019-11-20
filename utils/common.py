@@ -7,7 +7,12 @@ import time
 import numpy as np
 import shutil
 
-
+__all__ = ['print_experiment_environment', 'set_manual_seed', 'set_logger',
+           'AverageMeter', 'get_list_index_split', 'get_next_scale', 'get_list_index', 'get_cell_decode_type',
+           'get_prev_c', 'get_padding_size', 'get_monitor_metric', 'get_prev_c_abs', 'get_scale_relation',
+           'time_for_file', 'detach_variable', 'delta_ij', 'create_exp_dir',
+           'count_parameters', 'count_normal_conv_flop', 'count_conv_flop', 'save_inter_tensor',
+           'network_layer_to_space']
 
 def print_experiment_environment():
 
@@ -110,6 +115,7 @@ def detach_variable(inputs):
         return tuple([detach_variable(x) for x in inputs])
     else:
         x = inputs.detach()
+        #x.requires_grad = inputs.requires_grad
         x.requires_grad = inputs.requires_grad
         return x
 
@@ -246,6 +252,7 @@ def get_scale_relation(scale, next_scale):
 
 
 
+'''
 def network_layer_to_space(net_arch, nb_layers):
     assert len(net_arch) == nb_layers, 'invalid nb_layers'
     network_space = np.zeros((nb_layers, 4, 3))
@@ -270,7 +277,7 @@ def network_layer_to_space(net_arch, nb_layers):
         prev = scale
 
     return network_space
-
+'''
 def create_exp_dir(path, scripts_to_save=None):
     if not os.path.exists(path):
         os.mkdir(path)
@@ -281,3 +288,17 @@ def create_exp_dir(path, scripts_to_save=None):
         for script in scripts_to_save:
             dst_file = os.path.join(path, 'scripts', os.path.basename(script))
             shutil.copyfile(script, dst_file)
+
+
+def detect_none_inputs(s0, s1):
+    log = ''
+    if s0 is None:
+        log += 'None, '
+    else:
+        log += 'not None, '
+    if s1 is None:
+        log += 'None'
+    else:
+        log += 'not None'
+
+    return log

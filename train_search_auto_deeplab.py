@@ -51,7 +51,8 @@ if __name__ == '__main__':
     args.path = os.path.join(args.path, args.exp_name, EXP_time)
 
     # save experiment scripts
-    create_exp_dir(args.path, scripts_to_save=glob.glob('*.py'))
+
+    create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
 
     # build run configs
     args.lr_scheduler_param = None
@@ -64,7 +65,7 @@ if __name__ == '__main__':
         '3x3_MBConv3', '3x3_MBConv6',
         '5x5_MBConv3', '5x5_MBConv6',
         '7x7_MBConv3', '7x7_MBConv6',
-        'Zero', #'Identity'
+        #'Zero', #'Identity'
     ]
 
     #print(args.__dict__)
@@ -143,7 +144,7 @@ if __name__ == '__main__':
     )
     '''
     auto_deeplab = SplitFabricAutoDeepLab(
-        run_config, arch_search_config, args.conv_candidates
+        run_config, args.conv_candidates
     )
 
     # auto_deeplab._modules : stem0 stem1 stem2 stem3, cells, aspp4, aspp8, aspp16, aspp32
