@@ -730,7 +730,7 @@ class ArchSearchRunManager:
 
         # TODO: MixedEdge !!!
         MixedEdge.MODE = self.arch_search_config.grad_binary_mode # full_v2
-        #SplitFabricAutoDeepLab.MODE = self.arch_search_config.grad_binary_mode
+        SplitFabricAutoDeepLab.MODE = self.arch_search_config.grad_binary_mode
         #print('MixedEdge.MODE:',MixedEdge.MODE)
         time1 = time.time()
 
@@ -746,9 +746,10 @@ class ArchSearchRunManager:
         #print('='*30)
         #print(self.net._unused_modules)
         self.net.reset_binary_gates() # set active and inactive
-
+        '''
         for param in self.net.cell_binary_gates():
             param.register_hook(hook)
+            '''
 
         # print mixedop binarygates
         #print('mixed_operation binary gates, after binarize')
@@ -801,12 +802,19 @@ class ArchSearchRunManager:
         #print('backward')
         #print('\t before backward')
         loss.backward()
+        '''
         for param in self.net.cell_binary_gates():
             if param.grad is not None:
                 print(param.grad)
         for m in self.net.redundant_modules:
             if m.AP_path_wb.grad is not None:
                 print('got it again')
+                '''
+        print('nb_redundant_modules: ', len(self.net.redundant_modules))
+        for module in self.net.redundant_modules:
+            assert isinstance(module, MixedEdge)
+            if module.AP_path_wb.grad is not None:
+                print('got it', module.AP_path_wb.grad)
        # print('\t after backward')
         #print('mixed_operation binary gates after backward')
 

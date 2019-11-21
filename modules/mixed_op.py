@@ -240,14 +240,21 @@ class MixedEdge(MyModule):
 
     def set_arch_param_grad(self):
         # where comes from
+
         if self.AP_path_wb.grad is None :
             print(self.AP_path_wb)
             print(self.active_op)
             #print(self.module_str)
 
+
         # TODO: change line of binary_grads = self.AP_path_wb.grad.data
 
+        #if self.AP_path_wb.grad is None:
+            # didn't backward pass through
+        #    return
+
         if self.active_op.is_zero_layer():
+            print('zero')
             self.AP_path_alpha.grad = None
             return
 
@@ -311,7 +318,7 @@ class ArchGradientFunction(torch.autograd.Function):
     def backward(ctx, grad_outputs):
         detached_x, output = ctx.saved_tensors
 
-        grad_x = torch.autograd.grad(output, detached_x, grad_outputs, only_inputs=True)
+        grad_x = torch.autograd.grad(output, detached_x, grad_outputs, only_inputs=True)#, retain_graph=True)
         # compute gradient w.r.t. binary_gates
         binary_grads = ctx.backward_func(detached_x.data, output.data, grad_outputs.data)
         print('in mixed_operation backward:', binary_grads)

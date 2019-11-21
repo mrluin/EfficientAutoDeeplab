@@ -520,7 +520,7 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
             def backward_function(candidate_paths, active_id, cell_index, binary_gates):
                 def backward(_prev_prev_c, _prev_c, _output, grad_output):
-                    #print('_backward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
+                    print('_backward of layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
                     # print('_backward for layer {} scale {} cell_index {}'.format(layer, scale, cell_index))
                     # print('before super_network backwards _forward: ',
                     #      candidate_paths[cell_index].ops[1].mobile_inverted_conv.AP_path_wb.grad)
@@ -528,13 +528,28 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
                     with torch.no_grad():
                         for k in range(3):  # change len(candidate_paths) to 3
-                            if k != active_id:
-                                if _prev_prev_c is not None:
-                                    out_k = candidate_paths[cell_index](_prev_prev_c.data, _prev_c.data)
-                                else:
-                                    out_k = candidate_paths[cell_index](_prev_prev_c, _prev_c.data)
+                            if scale == 0 and k == 0:
+                                out_k = 0
+                                grad_k = torch.sum(out_k * grad_output)
+                                binary_grads[layer][scale][k] = grad_k
+                                continue
+                            if scale == 3 and k == 2:
+                                out_k = 0
+                                grad_k = torch.sum(out_k * grad_output)
+                                binary_grads[layer][scale][k] = grad_k
+                                continue
+                            if k != active_id:  # cell_index is related to active_id
+                                #if _prev_prev_c is not None:
+                                out_k = candidate_paths[cell_index-active_id+k](None, _prev_c.data)
+                                #else:
+                                #    out_k = candidate_paths[cell_index](_prev_prev_c, _prev_c.data)
                             else:
                                 out_k = _output.data
+
+
+                            # todo issue in dim mismatch of grad_k
+                            print(active_id, k)
+                            print(out_k.shape, grad_output.shape)
                             grad_k = torch.sum(out_k * grad_output)
                             binary_grads[layer][scale][k] = grad_k
 
@@ -1019,7 +1034,8 @@ class SplitFabricAutoDeepLab(MyNetwork):
 
     @property
     def redundant_modules(self):
-        # proxy related to modules
+
+        '''
         if self._redundant_modules is None:
             module_list = []
             for m in self.modules():
@@ -1027,6 +1043,27 @@ class SplitFabricAutoDeepLab(MyNetwork):
                     module_list.append(m)
             self._redundant_modules =  module_list
         # get all the mixededge module
+        return self._redundant_modules
+        '''
+
+        # proxy related to modules
+        # after binarize, set redundant modules according to active_index and inactive_index
+
+        if self._redundant_modules is None:
+            print('\tset_redundant_modules')
+            current_scale = 0
+            module_list = []
+            for layer in range(self.nb_layers):
+                next_scale = get_next_scale(self.active_index[layer][current_scale][0], current_scale)
+                cell_index = get_list_index_split(layer, current_scale, next_scale)
+
+                for m in self.cells[cell_index].modules():
+                    if m.__str__().startswith('MixedEdge'):
+                        #print('layer {} add '.format(layer))
+                        module_list.append(m)
+                current_scale = next_scale
+            self._redundant_modules = module_list
+
         return self._redundant_modules
 
     def reset_binary_gates(self):
@@ -1076,6 +1113,9 @@ class SplitFabricAutoDeepLab(MyNetwork):
             for i in unused: # i, index
                 m.candidate_ops[i] = unused[i]
         self._unused_modules = None
+
+        # TODO: control self._redundant_modules
+        self._redundant_modules = None
 
     def set_active_via_net(self, net):
         # setting from existing net
