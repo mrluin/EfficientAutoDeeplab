@@ -182,7 +182,7 @@ if __name__ == '__main__':
     # warm up
 
     if arch_search_run_manager.warmup:
-        torch.autograd.set_detect_anomaly(True)
+        #torch.autograd.set_detect_anomaly(True)
         arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
     # joint training
     #arch_search_run_manager.train(fix_net_weights=args.debug)
