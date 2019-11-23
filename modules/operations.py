@@ -597,6 +597,17 @@ class MobileInvertedResidualBlock(MyModule):
             res = skip_x + conv_x
         return res
 
+    def forward_gdas(self, x, weight, index):
+        if self.mobile_inverted_conv.is_zero_layer():
+            res = x
+        elif self.shortcut is None or self.shortcut.is_zero_layer():
+            res = self.mobile_inverted_conv.forward_gdas(x, weight, index)
+        else:
+            conv_x = self.mobile_inverted_conv.forward_gdas(x, weight, index)
+            skip_x = self.shortcut(x)
+            res = skip_x + conv_x
+        return res
+
     def module_str(self):
         # self.mobile_inverted_conv is MixedOperation
         # shortcut is Identity

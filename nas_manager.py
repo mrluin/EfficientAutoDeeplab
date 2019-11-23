@@ -127,7 +127,7 @@ class ArchSearchRunManager:
         )
 
         # build architecture optimizer
-        self.arch_optimizer = self.arch_search_config.build_optimizer(self.net.architecture_parameters())
+        self.arch_optimizer = self.arch_search_config.build_optimizer(self.net.arch_parameters())
         #self.arch_optimizer = self.arch_optimizer.to(self.run_manager.device)
 
         self.warmup = True # should warmup or not
@@ -306,10 +306,10 @@ class ArchSearchRunManager:
                 #for param_group in self.run_manager.optimizer.param_groups:
                 #    param_group['lr'] = warmup_lr
 
-                self.net.reset_binary_gates()
+                #self.net.reset_binary_gates()
                 #print('warm_up net active_index')
                 #print(self.net.active_index)
-                self.net.unused_modules_off()
+                #self.net.unused_modules_off()
 
                 #print('after binarize')
                 #print('memory_allocated', torch.cuda.memory_allocated())
@@ -349,7 +349,7 @@ class ArchSearchRunManager:
                 #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
                 self.run_manager.optimizer.step()
-                self.net.unused_modules_back()
+                #self.net.unused_modules_back()
 
                 # measure metrics and update
 
@@ -391,22 +391,25 @@ class ArchSearchRunManager:
             # TODO: in warm_up phase, does not update network_arch_parameters,
             # the super_net path used in validate could be invalid.
             # perform validate at the end of each epoch
+            '''
             valid_loss, valid_acc, valid_miou, valid_fscore, flops, params = self.validate()
             valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M\tparams{7:}M'\
                 .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops, params / 1e6)
             valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
-
-
+            
+            
             # target_hardware is None by default
             if self.arch_search_config.target_hardware not in [None, 'flops']:
                 raise NotImplementedError
 
             self.run_manager.write_log(valid_log, 'valid')
-
+            '''
             # continue warmup phrase
 
             self.warmup = epoch + 1 < warmup_epochs
 
+
+            '''
             # To save checkpoint in warmup phase at specific frequency.
             if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
                 state_dict = self.net.state_dict()
@@ -423,7 +426,7 @@ class ArchSearchRunManager:
                     checkpoint['warmup_epoch'] = epoch
                 self.run_manager.save_model(epoch, checkpoint, is_best=False,
                                             checkpoint_file_name='checkpoint-warmup.pth.tar')
-
+            '''
 
     def train(self, fix_net_weights=False):
         data_loader = self.run_manager.run_config.train_loader
@@ -434,16 +437,16 @@ class ArchSearchRunManager:
             print('Train Phase close for debug')
             arch_update_flag = 0
 
-        # get fabric_path_alpha and AP_path_alpha
-        arch_param_num = len(list(self.net.architecture_parameters()))
+        # get arch_parameters
+        arch_param_num = len(list(self.net.arch_parameters()))
         # get fabric_path_wb and AP_path_wb
-        binary_gates_num = len(list(self.net.binary_gates()))
-        # get network weight params
+        #binary_gates_num = len(list(self.net.binary_gates()))
+        # get weight_parameters
         weight_param_num = len(list(self.net.weight_parameters()))
 
         print(
-            '#arch_params: {}\t #binary_gates: {}\t # weight_params: {}'.format(
-                arch_param_num, binary_gates_num, weight_param_num))
+            '#arch_params: {}\t # weight_params: {}'.format(
+                arch_param_num, weight_param_num))
 
         update_schedule = self.arch_search_config.get_update_schedule(iter_per_epoch)
 

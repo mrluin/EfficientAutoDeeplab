@@ -68,8 +68,11 @@ class MixedOp(MyModule):
         return sum(w * op(x) for w, op in zip(weight, self.candidate_ops))
 
     def forward_gdas(self, x, weight, argmax):
-        return sum(weight[_ie] * op(x) if _ie == argmax else weight[_ie] for _ie, op in enumerate(self.ops))
+        return sum(weight[_ie] * op(x) if _ie == argmax else weight[_ie] for _ie, op in enumerate(self.candidate_ops))
 
+    # TODO: whether exists zero layer case
+    def is_zero_layer(self):
+        return False
 
     @property
     def n_choices(self):
@@ -116,11 +119,26 @@ class GumbelCell(MyModule):
         self.prev_scale = prev_scale
 
         self.outc = int(self.filter_multiplier * self.block_multiplier * index2scale[self.scale] / 4)
+
         # preprocess0 and preprocess1
         if index2scale.get(self.prev_scale) is not None:
             self.prev_c = int(self.filter_multiplier * self.block_multiplier * index2scale[self.prev_scale] / 4)
+            if self.prev_scale == self.scale + 1:  # reduction
+                self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc)
+            elif self.prev_scale == self.scale:  # same
+                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
+            elif self.prev_scale == self.scale - 1:  # up
+                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
+            else:
+                raise ValueError('invalid relation between prev_scale and current scale')
         else:
             self.prev_c = self.prev_scale # fixed
+            if self.scale == 0:
+                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
+            elif self.scale == 1:
+                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
+            else:
+                raise ValueError('invalid scale value')
 
         if self.prev_prev_scale is None:
             self.prev_prev_c = None
@@ -133,14 +151,7 @@ class GumbelCell(MyModule):
             # TODO: issue in scale of prev_prev_c, it is considered as next_scale by default
             self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False)
 
-        if self.prev_scale == self.scale + 1: # reduction
-            self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
-        elif self.prev_scale == self.scale: # same
-            self.preprocess1 = ConvLayer(self.pre_c, self.outc, 1, 1, False)
-        elif self.prev_scale == self.scale - 1: # up
-            self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc)
-        else:
-            raise ValueError('invalid relation between prev_scale and current scale')
+
 
         # todo, new attribute nn.ModuleDict()
         self.ops = nn.ModuleDict()
@@ -165,7 +176,7 @@ class GumbelCell(MyModule):
 
         self.finalconv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
 
-        self.edge_keys = sorted(list(self.edges.keys()))
+        self.edge_keys = sorted(list(self.ops.keys()))
         self.edge2index = {key:i for i, key in enumerate(self.edge_keys)}
         self.nb_edges = len(self.ops)
 
@@ -181,6 +192,8 @@ class GumbelCell(MyModule):
         # weights is importance of operations, have been sorted.
 
         # s0 is none, self.prev_prev_scale is None, self.prev_prev_c is none, self.preprocess0 is None
+
+
         if s0 is not None:
             assert self.preprocess0 is not None, 'preprocess0 and s0 are inconsistent '
             s0 = self.preprocess0(s0)
@@ -195,12 +208,12 @@ class GumbelCell(MyModule):
                 branch_index = self.edge2index[edge_str]
                 related_hidden = states[j]
                 # self.ops has None operation when self.prev_prev_scale is none and j == 0
-                if self.ops[branch_index] is None:
+                if self.ops[edge_str] is None:
                     assert related_hidden is None, \
                         'None operation branch and None prev_prev_input are inconsistent'
                     continue
                 weight = weights[branch_index]
-                new_state = self.ops[branch_index](
+                new_state = self.ops[edge_str](
                     related_hidden, weight
                 )
                 new_states.append(new_state)
@@ -218,6 +231,9 @@ class GumbelCell(MyModule):
         # weights is importance of operations, have been sorted.
 
         # s0 is none, self.prev_prev_scale is None, self.prev_prev_c is none, self.preprocess0 is None
+
+        #print(self.prev_prev_scale, self.prev_scale)
+
         if s0 is not None:
             s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
@@ -230,12 +246,12 @@ class GumbelCell(MyModule):
                 edge_str = '{:}<-{:}'.format(i, j)
                 branch_index = self.edge2index[edge_str]
                 related_hidden = states[j]
-                if self.ops[branch_index] is None:
+                if self.ops[edge_str] is None:
                     assert  related_hidden is None, 'inconsistent action of cell operations and prev_prev_cell'
                     continue
                 weight = hardwts[branch_index]
                 argmax = index[branch_index].item()
-                new_state = self.ops[branch_index](related_hidden, weight, argmax) # edge output of a node
+                new_state = self.ops[edge_str].forward_gdas(related_hidden, weight, argmax) # edge output of a node
                 new_states.append(new_state)
             s = sum(new_states)
             states.append(s)

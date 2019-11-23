@@ -12,7 +12,7 @@ __all__ = ['print_experiment_environment', 'set_manual_seed', 'set_logger',
            'get_prev_c', 'get_padding_size', 'get_monitor_metric', 'get_prev_c_abs', 'get_scale_relation',
            'time_for_file', 'detach_variable', 'delta_ij', 'create_exp_dir',
            'count_parameters', 'count_normal_conv_flop', 'count_conv_flop', 'save_inter_tensor',
-           'network_layer_to_space']
+           ]
 
 def print_experiment_environment():
 
@@ -250,8 +250,51 @@ def get_scale_relation(scale, next_scale):
 
     raise NotImplementedError
 
+def get_pfeatures(layer, scale, scale0_features, scale1_features, scale2_features, scale3_features):
 
+    prev_prev_feature = None
+    prev_feature = []
+    if scale == 0:
+        if layer == 0: prev_prev_feature = None
+        else: prev_prev_feature = scale0_features[-2]
+        if layer == 0: prev_feature.append(scale0_features[-1])
+        else:
+            prev_feature.append(scale0_features[-1])
+            prev_feature.append(scale1_features[-1])
+    elif scale == 1:
+        if layer == 0 or layer == 1: prev_prev_feature = None
+        else: prev_prev_feature = scale1_features[-2]
+        if layer == 0: prev_feature.append(scale0_features[-1])
+        elif layer == 1:
+            prev_feature.append(scale0_features[-1])
+            prev_feature.append(scale1_features[-1])
+        else:
+            prev_feature.append(scale0_features[-1])
+            prev_feature.append(scale1_features[-1])
+            prev_feature.append(scale2_features[-1])
+    elif scale == 2:
+        if layer == 0: raise ValueError('invalid layer scale relation 0, 2')
+        elif layer == 1 or layer == 2: prev_prev_feature = None
+        else: prev_prev_feature = scale2_features[-2]
+        if layer == 1: prev_feature.append(scale1_features[-1])
+        elif layer == 2:
+            prev_feature.append(scale1_features[-1])
+            prev_feature.append(scale2_features[-1])
+        else:
+            prev_feature.append(scale1_features[-1])
+            prev_feature.append(scale2_features[-1])
+            prev_feature.append(scale3_features[-1])
+    elif scale == 3:
+        if layer == 0 or layer == 1: raise ValueError('invalid layer scale relation 0/1, 3')
+        elif layer == 2 or layer == 3: prev_prev_feature = None
+        else: prev_prev_feature = scale3_features[-2]
+        if layer == 2: prev_feature.append(scale2_features[-1])
+        else:
+            prev_feature.append(scale2_features[-1])
+            prev_feature.append(scale3_features[-1])
+    else: raise ValueError('invalid scale value {}'.format(scale))
 
+    return prev_prev_feature, prev_feature
 '''
 def network_layer_to_space(net_arch, nb_layers):
     assert len(net_arch) == nb_layers, 'invalid nb_layers'
@@ -302,3 +345,33 @@ def detect_none_inputs(s0, s1):
         log += 'not None'
 
     return log
+
+def detect_inputs_shape(s0, s1):
+    log = ''
+    if s0 is None:
+        log += 's0: None,'
+    else:
+        log += 's0: {:}'.format(s0.shape)
+
+    if s1 is None:
+        log += ' s1: None'
+    else:
+        log += ' s1: {:}'.format(s1.shape)
+
+    return log
+
+def append_scale_list(scale_list, scale0_features, scale1_features, scale2_features, scale3_features):
+    for key in scale_list.keys():
+        if scale_list[key] is not None:
+            if key == 0:
+                scale0_features.append(scale_list[key])
+            elif key == 1:
+                scale1_features.append(scale_list[key])
+            elif key == 2:
+                scale2_features.append(scale_list[key])
+            elif key == 3:
+                scale3_features.append(scale_list[key])
+            else:
+                raise ValueError('invalid key error {}'.format(key))
+        else:
+            continue

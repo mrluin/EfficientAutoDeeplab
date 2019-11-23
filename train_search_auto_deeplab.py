@@ -14,6 +14,7 @@ from configs.train_search_config import obtain_train_search_args
 from models.auto_deeplab import AutoDeepLab
 from models.proxy_cell_auto_deeplab import ProxyAutoDeepLab
 from models.split_fabric_auto_deeplab import SplitFabricAutoDeepLab
+from models.gumbel_super_network import GumbelAutoDeepLab
 from utils.common import create_exp_dir
 
 
@@ -143,9 +144,14 @@ if __name__ == '__main__':
         run_config, arch_search_config, args.conv_candidates
     )
     '''
-
+    '''
     auto_deeplab = SplitFabricAutoDeepLab(
         run_config, args.conv_candidates
+    )
+    '''
+    auto_deeplab = GumbelAutoDeepLab(
+        run_config.filter_multiplier, run_config.block_multiplier, run_config.steps,
+        run_config.nb_classes, run_config.nb_layers, run_config.conv_candidates
     )
 
 
@@ -174,10 +180,12 @@ if __name__ == '__main__':
                 print('='*30+'=>\tFail to load warmup weights ...')
 
     # warm up
+
     if arch_search_run_manager.warmup:
+        torch.autograd.set_detect_anomaly(True)
         arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
     # joint training
-    arch_search_run_manager.train(fix_net_weights=args.debug)
+    #arch_search_run_manager.train(fix_net_weights=args.debug)
 
 
 
