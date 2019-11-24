@@ -226,6 +226,46 @@ def get_list_index_split(layer, current_scale, next_scale):
             elif next_scale - current_scale == -1:
                 return base + 2 + (current_scale - 1)*3
 
+def get_cell_index(layer, current_scale, next_scale):
+    # pay attention:: layer-0 is w.r.t. output of stem2
+    # for gumbel_super_network order
+    # use layer + 1
+    relation2index = {1: 0, 0: 1, -1: 2} # next_scale - current_scale
+    relation2index_s0 = {0: 0, -1: 1}
+    layer = layer + 1 # real layer_index
+    if layer == 1:
+        return next_scale
+    elif layer == 2:
+        base = 2
+        if next_scale == 0:
+            return base + relation2index_s0[next_scale-current_scale]
+        elif next_scale == 1:
+            return base + 2 + relation2index[next_scale-current_scale]
+        elif next_scale == 2:
+            return base + 4 + relation2index[next_scale - current_scale]
+        else:
+            raise ValueError('Error in get_cell_index, scale 3 cannot appear in layer 2')
+    elif layer == 3:
+        base = 7
+        if next_scale == 0:
+            return base + relation2index_s0[next_scale-current_scale]
+        elif next_scale == 1:
+            return base + 2 + relation2index[next_scale-current_scale]
+        elif next_scale == 2:
+            return base + 5 + relation2index[next_scale-current_scale]
+        elif next_scale == 3:
+            return base + 7 + relation2index[next_scale-current_scale]
+    else:
+        base = 15 + (layer-4) * 10
+        if next_scale == 0:
+            return base + relation2index_s0[next_scale-current_scale]
+        elif next_scale == 1:
+            return base + 2 + relation2index[next_scale-current_scale]
+        elif next_scale == 2:
+            return base + 5 + relation2index[next_scale-current_scale]
+        elif next_scale == 3:
+            return base + 8 + relation2index[next_scale-current_scale]
+
 def get_prev_c(intermediate_features, scale):
     # scale is next scale
     if intermediate_features[-2][0] == scale:
@@ -375,3 +415,25 @@ def append_scale_list(scale_list, scale0_features, scale1_features, scale2_featu
                 raise ValueError('invalid key error {}'.format(key))
         else:
             continue
+
+
+def detect_invalid_index(index, nb_layers):
+    # index shape as [12, 4]
+    for i in range(0, nb_layers):
+        if i == 0:
+            if index[i][0] != 1: return 'layer {} scale 0 invalid_value {}'.format(i+1, index[i][0]), False
+            if index[i][1] != 0: return 'layer {} scale 1 invalid_value {}'.format(i+1, index[i][1]),False
+        elif i == 1:
+            if index[i][0] != 1 and index[i][0] != 2: return 'layer {} scale 0 invalid_value {}'.format(i+1, index[i][0]), False
+            if index[i][1] != 0 and index[i][1] != 1: return 'layer {} scale 1 invalid_value {}'.format(i+1, index[i][1]),False
+            if index[i][2] != 0: return 'layer {} scale 2 invalid_value {}'.format(i, index[i][2]),False
+        elif i == 2:
+            if index[i][0] != 1 and index[i][0] != 2: return 'layer {} scale 0 invalid_value {}'.format(i+1, index[i][0]),False
+            if index[i][2] != 0 and index[i][2] != 1: return 'layer {} scale 2 invalid_value {}'.format(i+1, index[i][2]),False
+            if index[i][3] != 0: return 'layer {} scale 3 invalid_value {}'.format(i, index[i][3]),False
+        else:
+            if index[i][0] != 1 and index[i][0] != 2: return 'layer {} scale 0 invalid_value {}'.format(i+1, index[i][0]),False
+            if index[i][3] != 0 and index[i][3] != 1: return 'layer {} scale 3 invalid_value {}'.format(i+1, index[i][3]),False
+
+    return None, True
+

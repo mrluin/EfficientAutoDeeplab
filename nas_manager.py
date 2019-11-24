@@ -206,26 +206,29 @@ class ArchSearchRunManager:
 
         #print('before validate net active_index')
         #print(self.net.active_index)
-        self.net.set_chosen_op_active()
+        #self.net.set_chosen_op_active()
         #print('validate net active_index')
         #print(self.net.active_index)
 
-        self.net.unused_modules_off()
+        #self.net.unused_modules_off()
+
         # TODO: network_level and cell_level decode in net_flops() method
         # TODO: valid on validation set (from training set) under train mode
         # only have effect on operation related to train mode
         # like bn or dropout
         loss, acc, miou, fscore = self.run_manager.validate(is_test=False, net=self.net, use_train_mode=True)
-        flops = self.run_manager.net_flops()
-        params = count_parameters(self.net)
+
+        # TODO: network flops and network param count should be calculated after the best network derived.
+        # flops = self.run_manager.net_flops()
+        # params = count_parameters(self.net)
         # target_hardware is None by default
         if self.arch_search_config.target_hardware in ['flops', None]:
             latency = 0
         else:
             raise NotImplementedError
 
-        self.net.unused_modules_back()
-        return loss, acc, miou, fscore, flops, params
+        #self.net.unused_modules_back()
+        return loss, acc, miou, fscore, #flops, params
 
     def warm_up(self, warmup_epochs):
         if warmup_epochs <=0 :
@@ -279,7 +282,7 @@ class ArchSearchRunManager:
             for i, (datas, targets) in enumerate(data_loader):
 
                 # TODO: evaluate memory allocation
-                if i == 1 : break
+
 
                 #print('before datas')
                 #print('memory_allocated', torch.cuda.memory_allocated())
@@ -315,7 +318,7 @@ class ArchSearchRunManager:
                 #print('memory_allocated', torch.cuda.memory_allocated())
                 #print('max_memory_allocated', torch.cuda.max_memory_allocated())
 
-                logits = self.net(datas)
+                logits = self.net.single_path_forward(datas)
 
                 #print('after forward')
                 #print('memory_allocated', torch.cuda.memory_allocated())
@@ -391,32 +394,29 @@ class ArchSearchRunManager:
             # TODO: in warm_up phase, does not update network_arch_parameters,
             # the super_net path used in validate could be invalid.
             # perform validate at the end of each epoch
-            '''
-            valid_loss, valid_acc, valid_miou, valid_fscore, flops, params = self.validate()
-            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}\tflops\t{6:}M\tparams{7:}M'\
-                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore, flops, params / 1e6)
+
+            valid_loss, valid_acc, valid_miou, valid_fscore = self.validate()
+            valid_log = 'Warmup Valid\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tF\t{5:6.4f}'\
+                .format(epoch+1, warmup_epochs, valid_loss, valid_acc, valid_miou, valid_fscore)
+                        #'\tflops\t{6:}M\tparams{7:}M'\
             valid_log += 'Train\t[{0}/{1}]\tLoss\t{2:.6f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}'
-            
             
             # target_hardware is None by default
             if self.arch_search_config.target_hardware not in [None, 'flops']:
                 raise NotImplementedError
 
             self.run_manager.write_log(valid_log, 'valid')
-            '''
-            # continue warmup phrase
 
+            # continue warmup phrase
             self.warmup = epoch + 1 < warmup_epochs
 
-
-            '''
             # To save checkpoint in warmup phase at specific frequency.
             if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
                 state_dict = self.net.state_dict()
-                # TODO: why
-                # rm architecture parameters & binary gates
+
+                # rm architecture parameters because, in warm_up phase, arch_parameters are not updated.
                 for key in list(state_dict.keys()):
-                    if 'AP_path_alpha' in key or 'AP_path_wb' in key:
+                    if 'cell_arch_parameters' in key or 'network_arch_parameters' in key or 'aspp_arch_parameters' in key:
                         state_dict.pop(key)
                 checkpoint = {
                     'state_dict': state_dict,
@@ -426,12 +426,26 @@ class ArchSearchRunManager:
                     checkpoint['warmup_epoch'] = epoch
                 self.run_manager.save_model(epoch, checkpoint, is_best=False,
                                             checkpoint_file_name='checkpoint-warmup.pth.tar')
-            '''
+
 
     def train(self, fix_net_weights=False):
+
+        # TODO: set valid batch_size
+
+        if self.arch_search_config.grad_data_batch is None:
+            self.run_manager.run_config.valid_loader.batch_sampler.batch_size = \
+                self.run_manager.run_config.train_loader.batch_size
+        else:
+            self.run_manager.run_config.valid_loader.batch_sampler.batch_size = self.arch_search_config.grad_data_batch
+
+        self.run_manager.run_config.valid_loader.batch_sampler.drop_last = True
+
         data_loader = self.run_manager.run_config.train_loader
+        #valid_data_loader = self.run_manager.run_config.valid_loader
+
         iter_per_epoch = len(data_loader)
         arch_update_flag = 0
+
         if fix_net_weights: # used to debug
             data_loader = [(0, 0)] * iter_per_epoch
             print('Train Phase close for debug')
@@ -443,18 +457,15 @@ class ArchSearchRunManager:
         #binary_gates_num = len(list(self.net.binary_gates()))
         # get weight_parameters
         weight_param_num = len(list(self.net.weight_parameters()))
-
+        # TODO: weight_parameters does not make sense. Only arch_param
         print(
             '#arch_params: {}\t # weight_params: {}'.format(
                 arch_param_num, weight_param_num))
-
+        # arch_parameter update frequency and times in each iteration.
         update_schedule = self.arch_search_config.get_update_schedule(iter_per_epoch)
 
-        # TODO: print arch_param update_schedule
-        #print(update_schedule)
-
         for epoch in range(self.run_manager.start_epoch, self.run_manager.run_config.total_epochs):
-            print('\n', '-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30, '\n')
+            print('\n'+'-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30+'\n')
 
             batch_time = AverageMeter()
             data_time = AverageMeter()
@@ -463,7 +474,10 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
-            #self.run_manager.net.train()
+            valid_losses = AverageMeter()
+            valid_accs = AverageMeter()
+            valid_mious = AverageMeter()
+            valid_fscores = AverageMeter()
             self.net.train()
 
             end = time.time()
@@ -473,9 +487,6 @@ class ArchSearchRunManager:
                     self.run_manager.optimizer, epoch, i, iter_per_epoch
                 )
                 # TODO: network entropy
-
-                # train network weight parameter if not fix_net_weights
-
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -486,11 +497,11 @@ class ArchSearchRunManager:
                     data_time.update(time.time() - end)
 
                     # compute output
-                    self.net.reset_binary_gates()
-                    self.net.unused_modules_off()
+                    #self.net.reset_binary_gates()
+                    #self.net.unused_modules_off()
                     #print(self.net._unused_modules)
                     #logits = self.run_manager.net(datas)
-                    logits = self.net(datas)
+                    logits = self.net.single_path_forward(datas) # super network gdas forward
                     # loss
                     if self.run_manager.run_config.label_smoothing > 0.:
                         raise NotImplementedError
@@ -514,11 +525,69 @@ class ArchSearchRunManager:
                     loss.backward()
                     # here only update network weight parameters
                     self.run_manager.optimizer.step()
-                    self.net.unused_modules_back()
+                    #self.net.unused_modules_back()
 
                     # TODO: confirm the correct place of batch_time
                     batch_time.update(time.time() - end)
                     end = time.time()
+
+                    if epoch > 0: # skip arch_param update in the first epoch
+                        valid_datas, valid_targets = self.run_manager.run_config.valid_next_batch
+                        if torch.cuda.is_available():
+                            valid_datas = valid_datas.to(self.run_manager.device, non_blocking=True)
+                            valid_targets = valid_targets.to(self.run_manager.device, non_blocking=True)
+                        else:
+                            raise ValueError('do not support cpu version')
+
+
+                        logits = self.net.single_path_forward(valid_datas)
+                        loss = self.run_manager.criterion(logits, valid_targets)
+                        # metrics and update
+                        valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+                        valid_evaluator.add_batch(targets, logits)
+                        acc = valid_evaluator.Pixel_Accuracy()
+                        miou = valid_evaluator.Mean_Intersection_over_Union()
+                        fscore = valid_evaluator.Fx_Score()
+                        valid_losses.update(loss.data.item(), datas.size(0))
+                        valid_accs.update(acc.item(), datas.size(0))
+                        valid_mious.update(miou.item(), datas.size(0))
+                        valid_fscores.update(fscore.item(), datas.size(0))
+
+                        self.net.zero_grad()
+                        loss.backward()
+                        self.arch_optimizer.step()
+
+
+
+                        val_monitor_metric = get_monitor_metric(self.run_manager.monitor_metric, valid_losses.average, valid_accs.average,
+                                                                valid_mious.average, valid_fscores.average)
+                        self.run_manager.best_monitor = max(self.run_manager.best_monitor, val_monitor_metric)
+                        # TODO： perform save the best network ckpt
+                        # 1. save network_arch_parameters and cell_arch_parameters
+                        # 2. save weight_parameters
+                        # 3. weight_optimizer.state_dict
+                        # 4. arch_optimizer.state_dict
+                        # 5. training process
+                        # 6. monitor_metric and the best_value
+
+
+
+                        # validation log
+                        # TODO: add attribute valid_print_freq
+                        if i % self.run_manager.run_config.valid_print_freq == 0 or i + 1 == iter_per_epoch:
+                            if not fix_net_weights:
+                                val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
+                                          'Train\tLoss{loss.avg:.6f}\tAcc{accs.avg:6.4f}\tMIoU{mious.avg:6.4f}\tFscore{fscores.avg:6.4f}\n'.format(
+                                    epoch + 1, self.run_manager.run_config.total_epochs, valid_losses, valid_accs, valid_mious,
+                                    valid_fscores,
+                                    loss=valid_losses, accs=valid_accs, mious=valid_mious, fscores=valid_fscores)
+                            else:
+                                val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
+                                    .format(epoch + 1, self.run_manager.run_config.total_epochs, valid_losses, valid_accs,
+                                            valid_mious, valid_fscores,)
+                            self.run_manager.write_log(val_log, 'valid', should_print=True)
+
+
 
                     # training log per print_freq
                     if i % self.run_manager.run_config.print_freq == 0 or i + 1 == iter_per_epoch:
@@ -530,13 +599,23 @@ class ArchSearchRunManager:
                                     'MIoU\t{mious.val:6.4f}\t({mious.avg:6.4f})\n' \
                                     'F\t{fscores.val:6.4f}\t({fscores.avg:6.4f})\n'.format(
                             epoch + 1, i, iter_per_epoch, lr=lr, batch_time=batch_time, data_time=data_time,
-                            losses=losses, accs=accs, mious=mious, fscores=fscores
-                        )
+                            losses=losses, accs=accs, mious=mious, fscores=fscores)
                         self.run_manager.write_log(batch_log, 'train', should_print=True)
+            # save_ckpt_freq
+            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
+                self.run_manager.save_model(epoch, {
+                    'warmup': False,
+                    'epoch': epoch,
+                    'weight_optimizer': self.run_manager.optimizer.state_dict(),
+                    'arch_optimizer': self.arch_optimizer.state_dict(),
+                    'state_dict': self.net.state_dict(),
+                }, is_best=False, checkpoint_file_name=None)
 
+                '''
+                # @ for ProxyLessNAS
                 # TODO: skip arch_param update in the first epoch
                 # epoch >= 0 used to debug in gradient_step
-                if epoch >= 0:
+                if epoch > 0:
                     if not fix_net_weights:
                         for j in range(update_schedule.get(i, 0)): # step i update arch_param times
                             start_time = time.time()
@@ -578,16 +657,20 @@ class ArchSearchRunManager:
                             arch_update_flag = 1
                         else:
                             continue
+                '''
 
-            # print_save_arch_information
+            '''
+            # print_arch_information after each training epoch, is useless
             if self.run_manager.run_config.print_save_arch_information:
                 # print current network architecture at the end of each epoch
                 self.run_manager.write_log('-'*30 + 'Current Architecture {}'.format(epoch+1)+ '-'*30+'\n', prefix='arch', should_print=True)
                 log_str = self.net.module_str()
                 self.run_manager.write_log(log_str, prefix='arch', should_print=True)
                 self.run_manager.write_log('-' * 60, prefix='arch', should_print=True)
+                '''
 
-            # valid_freq
+            '''
+            # todo, training and validation phase have been performed in training phase alternatively.
             if (epoch+1) % self.run_manager.run_config.validation_freq == 0:
                 val_loss, val_acc, val_miou, val_fscore, flops, latency = self.validate()
 
@@ -603,15 +686,10 @@ class ArchSearchRunManager:
                     val_log = 'Valid\t[{0}/{1}]\tLoss\t{2:6.4f}\tAcc\t{3:6.4f}\tMIoU\t{4:6.4f}\tFscore\t{5:6.4f}\n' \
                               .format(epoch + 1, self.run_manager.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore,)
                 self.run_manager.write_log(val_log, 'valid', should_print=True)
-            # save_ckpt_freq
-            if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0:
-                self.run_manager.save_model(epoch, {
-                    'warmup': False,
-                    'epoch': epoch,
-                    'weight_optimizer': self.run_manager.optimizer.state_dict(),
-                    'arch_optimizer': self.arch_optimizer.state_dict(),
-                    'state_dict': self.net.state_dict(),
-                }, is_best=False, checkpoint_file_name=None)
+                '''
+
+        # TODO: get rid of 
+        # TODO, do not make sense, it should save the best network info rather than network after training.
         # after training phase
         if self.run_manager.run_config.save_normal_net_after_training:
 
@@ -704,6 +782,8 @@ class ArchSearchRunManager:
             print('\t-> normal_network_config, run_config, ckpt saved done!')
 
     def gradient_step(self):
+
+        # pay attention, this method only for proxylessNAS
 
         def backward_hook(module, input, output):
             if (module.AP_path_wb.grad) is not None:

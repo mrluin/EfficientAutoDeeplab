@@ -123,11 +123,11 @@ class GumbelCell(MyModule):
         # preprocess0 and preprocess1
         if index2scale.get(self.prev_scale) is not None:
             self.prev_c = int(self.filter_multiplier * self.block_multiplier * index2scale[self.prev_scale] / 4)
-            if self.prev_scale == self.scale + 1:  # reduction
+            if self.prev_scale == self.scale + 1:  # up
                 self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc)
             elif self.prev_scale == self.scale:  # same
                 self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
-            elif self.prev_scale == self.scale - 1:  # up
+            elif self.prev_scale == self.scale - 1:  # down
                 self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
             else:
                 raise ValueError('invalid relation between prev_scale and current scale')
@@ -246,8 +246,9 @@ class GumbelCell(MyModule):
                 edge_str = '{:}<-{:}'.format(i, j)
                 branch_index = self.edge2index[edge_str]
                 related_hidden = states[j]
-                if self.ops[edge_str] is None:
-                    assert  related_hidden is None, 'inconsistent action of cell operations and prev_prev_cell'
+                if self.ops[edge_str] is None or related_hidden is None:
+                    # TODO: pay attention here, related to process of prev_prev_feature in sampled single_path in AutoDeepLab
+                    #assert  related_hidden is None, 'inconsistent action of cell operations and prev_prev_cell'
                     continue
                 weight = hardwts[branch_index]
                 argmax = index[branch_index].item()
@@ -260,6 +261,28 @@ class GumbelCell(MyModule):
         concat_feature = self.finalconv1x1(concat_feature)
 
         return concat_feature
+
+
+    def get_flops(self, s0, s1):
+        # TODO: network flops should be calculated after derived!!!
+        flop_preprocess0 = 0.
+        if s0 is not None:
+            flop_preprocess0, s0 = self.preprocess0.get_flops(s0)
+        flop_preprcess1, s1 = self.preprocess1.get_flops(s1)
+        states = [s0, s1]
+        for i in range(2, self.total_nodes):
+            new_states = []
+            for j in range(i):
+                edge_str = '{:}<-{:}'.format(i, j)
+                branch_index = self.edge2index[edge_str]
+                related_hidden = states[j]
+
+    def forward_validate_test(self, s0, s1):
+        # in validate phrase, use normal gdas_forward,
+        # in testing phrase, it needs to derive the best network, then construct best network, perform normal forward
+        raise NotImplementedError
+
+
 
     def get_flops(self):
         raise NotImplementedError

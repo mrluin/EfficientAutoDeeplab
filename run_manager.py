@@ -530,6 +530,13 @@ class RunManager:
 
     def validate(self, is_test=False, net=None, use_train_mode=False):
         if is_test:
+            # TODO: if under the test mode, it should derive the best network, different from in validation mode.
+            # 1. super network viterbi_decodde, get actual_path
+            # 2. cells genotype decode, which are on the actual_path in the super network
+            # 3. according to actual_path and cells genotypes, construct the best network.
+            # 4. use the best network, to perform test phrase.
+
+
             data_loader = self.run_config.test_loader
         else:
             data_loader = self.run_config.valid_loader
@@ -557,8 +564,8 @@ class RunManager:
                 else:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end0)
-
-                logits = net(datas)
+                # todo, change to net.single_path_forward for gumbel_super_network
+                logits = net.single_path_forward(datas)
                 loss = self.criterion(logits, targets)
                 # metrics calculate and update
                 evaluator = Evaluator(self.run_config.nb_classes)

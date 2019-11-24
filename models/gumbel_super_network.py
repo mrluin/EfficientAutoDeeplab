@@ -14,7 +14,8 @@ from modules.my_modules import MyNetwork
 from modules.operations import ASPP
 from collections import OrderedDict
 
-from utils.common import get_pfeatures, detect_inputs_shape, append_scale_list
+from utils.common import get_pfeatures, detect_inputs_shape, append_scale_list, get_prev_c, get_cell_index, \
+    detect_invalid_index, count_normal_conv_flop
 
 __all__ = ['GumbelAutoDeepLab']
 
@@ -185,8 +186,8 @@ class GumbelAutoDeepLab(MyNetwork):
         self.tau = 10
 
         # todo
-        self.nb_edges =
-        self.edge2index =
+        #self.nb_edges =
+        #self.edge2index =
 
 
     def init_arch_params(self, init_type='normal', init_ratio=1e-3):
@@ -229,6 +230,48 @@ class GumbelAutoDeepLab(MyNetwork):
         for name, param in self.named_parameters():
             if 'network_arch_parameters' in name or 'cell_arch_parameters' in name or 'aspp_arch_parameters' in name:
                 yield param
+
+    def get_flops(self, x):
+
+        # TODO: network flops should be calculated after derived!!! uncompleted!!!
+        actual_path = self.viterbi_decode()
+        inter_features = []
+        print('actual_path', actual_path)
+        flops = 0.
+        flop_stem0 = count_normal_conv_flop(self.stem0.conv, x)
+        x = self.stem0(x)
+        flop_stem1 = count_normal_conv_flop(self.stem1.conv, x)
+        x = self.stem1(x)
+        inter_features.append((-1, x))
+        flop_stem2 = count_normal_conv_flop(self.stem2.conv, x)
+        x = self.stem2(x)
+        inter_features.append((0, x))
+
+        current_scale = 0
+        for layer in range(self.nb_layers):
+            next_scale = int(actual_path[layer])
+            prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
+            cell_index = get_cell_index(layer, current_scale, next_scale)
+
+            # TODO, uncompleted
+            frag_flop, out = self.cells[cell_index].get_flops(prev_prev_feature, prev_feature)
+
+            flops = flops + frag_flop
+            current_scale = next_scale
+            inter_features.pop(0)
+            inter_features.append([next_scale, out])
+
+        last_scale = int(actual_path[-1])
+        if last_scale == 0:
+            flop_aspp, output = self.aspp4.get_flops(inter_features[-1][1])
+        elif last_scale == 1:
+            flop_aspp, output = self.aspp8.get_flops(inter_features[-1][1])
+        elif last_scale == 2:
+            flop_aspp, output = self.aspp16.get_flops(inter_features[-1][1])
+        elif last_scale == 3:
+            flop_aspp, output = self.aspp32.get_flops(inter_features[-1][1])
+
+        return flops + flop_stem0 + flop_stem1 + flop_stem2 + flop_aspp, output
 
     def viterbi_decode(self):
 
@@ -313,205 +356,69 @@ class GumbelAutoDeepLab(MyNetwork):
     '''
     def cell_arch_decode(self):
         raise NotImplementedError
+    '''
+    def forward_validate_test(self, x):
 
-    def forward(self, x):
+        actual_path = self.viterbi_decode() # pay attention int(actual_path)
+
+        size = x.size()[-2:]
+        inter_features = []
+
+        x = self.stem0(x)
+        x = self.stem1(x)
+        inter_features.append((-1, x))
+        x = self.stem2(x)
+        inter_features.append((0, x))
+
+        current_scale = 0
+        for layer in range(self.nb_layers):
+            next_scale = int(actual_path[layer])
+            cell_index = get_cell_index(layer, current_scale, next_scale)
+            prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
+            state = self.cells[cell_index].forward_validate_test(prev_prev_feature, prev_feature)
+            current_scale = next_scale
+            inter_features.pop(0)
+            inter_features.append((next_scale, state))
+
+        last_scale = int(actual_path[-1])
+        assert last_scale == inter_features[-1][0], 'actual_path[-1] and inter_features[-1][0] is inconsistent'
+        if last_scale == 0:
+            return F.interpolate(self.aspp4(inter_features[-1][1]), size, mode='bilinear', align_corners=True)
+        elif last_scale == 1:
+            return F.interpolate(self.aspp8(inter_features[-1][1]), size, mode='bilinear', align_corners=True)
+        elif last_scale == 2:
+            return F.interpolate(self.aspp16(inter_features[-1][1]), size, mode='bilinear', align_corners=True)
+        elif last_scale == 3:
+            return F.interpolate(self.aspp32(inter_features[-1][1]), size, mode='bilinear', align_corners=True)
+    '''
+    def single_path_forward(self, x):
         # forward for network_level and cell_level
+        # 1. generate hardwts for super network √
+        # 2. _forward for each node √
+        # 3. generate hardwts for each cell √
+        # 4. forward for each cell √
+        # 5. re-order cells, have been re-ordered √
 
-        # 1. generate hardwts for super network
-        # 2. _forward for each node
-        # 3. generate hardwts for each cell
-        # 4. forward for each cell
-        # 5. re-order cells, have been re-ordered
+        def _single_path_gdas_weightsum(current_scale, next_scale, cell_index, _index, _hardwts, prev_prev_feature, prev_feature):
 
-        def _gdas_weighted_sum(layer, scale, cell_index, weight, index, prev_prev_c, prev_c):
-            # prev_c is a feature list, including prev_c_up, prev_c_same, prev_c_down
-            inter_result = []
-            if layer == 0:
-                if scale == 0:
-                    new_state = _forward(cell_index, prev_prev_c, prev_c[0])
-                    inter_result = [None, new_state, None]
-                elif scale == 1:
-                    #print(detect_inputs_shape(prev_prev_c, prev_c[0]))
-                    #print('cell_index', cell_index)
-                    new_state = _forward(cell_index, prev_prev_c, prev_c[0])
-                    inter_result = [new_state, None, None]
-            elif layer == 1:
-                if scale == 0:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    #print(detect_inputs_shape(prev_prev_c, prev_c[1]))
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    inter_result = [None, new_state_1, new_state_2]
-                elif scale == 1:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    #new_state_3 = _forward(cell_index+2, prev_prev_c, prev_c[2])
-                    inter_result = [new_state_1, new_state_2, None]
-                elif scale == 2:
-                    new_state = _forward(cell_index, prev_prev_c, prev_c[0])
-                    inter_result = [new_state, None, None]
-            elif layer == 2:
-                if scale == 0:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    inter_result = [None, new_state_1, new_state_2]
-                elif scale == 1:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    new_state_3 = _forward(cell_index+2, prev_prev_c, prev_c[2])
-                    inter_result = [new_state_1, new_state_2, new_state_3]
-                elif scale == 2:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    inter_result = [new_state_1, new_state_2, None]
-                elif scale == 3:
-                    new_state = _forward(cell_index, prev_prev_c, prev_c[0])
-                    inter_result = [new_state, None, None]
-            else:
-                if scale == 0:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    inter_result = [None, new_state_1, new_state_2]
-                elif scale == 1:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    new_state_3 = _forward(cell_index+2, prev_prev_c, prev_c[2])
-                    inter_result = [new_state_1, new_state_2, new_state_3]
-                elif scale == 2:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    new_state_3 = _forward(cell_index+2, prev_prev_c, prev_c[2])
-                    inter_result = [new_state_1, new_state_2, new_state_3]
-                elif scale == 3:
-                    new_state_1 = _forward(cell_index, prev_prev_c, prev_c[0])
-                    new_state_2 = _forward(cell_index+1, prev_prev_c, prev_c[1])
-                    inter_result = [new_state_1, new_state_2, None]
-            '''       
-            #rt = 0.
-            assert len(inter_result) == 3, 'error in inter_result of network level gumbel'
-            # weight, one_hot vector of each super network node
-            for _index, state in enumerate(inter_result):
-                if state is None: continue
-                #print(state.shape, wt)
-                if _index == index:
-                    print(state.shape, weight[_index])
-                    assert state is not None, 'error in network level gumbel'
-                    rt += state * weight[_index]
-                else:
-                    rt += weight[_index]
-            #return rt
-            '''
-            return sum(state * weight[_index] if _index==index else weight[_index] for _index, state in enumerate(inter_result))
+            # active path output, ignore the outputs of the other two (at most).
+            state = self.cell_gdas_forward(cell_index, prev_prev_feature, prev_feature)
+            # get inter_result list [], according to current_scale, next_scale
+            if current_scale == next_scale: # same 1
+                inter_result = [None, state, None]
+            elif current_scale - 1 == next_scale: # up 2
+                inter_result = [None, None, state]
+            elif current_scale + 1 == next_scale: # down 0
+                inter_result = [state, None, None]
+            else: raise ValueError('invalid scale relation between current_scale {:} and next_scale {:}'.format(current_scale, next_scale))
+            #print(_index)
+            assert inter_result[_index] is not None, 'Error in _single_path_gdas_weightsum'
+            return sum(state * _hardwts[_i] if _i == _index else _hardwts[_i] for _i, state in enumerate(inter_result))
 
-        def _forward(cell_index, prev_prev_c, prev_c):
+        hardwts, index = self.get_network_arch_hardwts()
 
-            cell = self.cells[cell_index]
-            #assert cell.cell_arch_parameters.shape == torch.Size(self.nb_edges, cell.n_choices)
-            while True:
-                # TODO: cell_arch_parameters shape as [nb_edges, n_choices]
-                gumbels = -torch.empty_like(cell.cell_arch_parameters).exponential_().log()
-                logits = (cell.cell_arch_parameters.log_softmax(dim=-1) + gumbels) / self.tau
-                probs = F.softmax(logits, dim=-1)
-                index = probs.max(-1, keepdim=True)[1]
-                one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
-                hardwts = one_h - probs.detach() + probs
-                if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
-                    continue
-                else: break
-
-            #print(detect_inputs_shape(prev_prev_c, prev_c))
-            return cell.forward_gdas(prev_prev_c, prev_c, hardwts, index)
-
-        # to get network-level hardwts
-        while True:
-            # network_arch_parameters shape [12, 4, 3]
-            # both requires_grad
-            gumbels = -torch.empty_like(self.network_arch_parameters).exponential_().log()
-            logits = torch.zeros_like(self.network_arch_parameters)
-            probs = torch.zeros_like(self.network_arch_parameters)
-
-            #index = torch.zeros(self.nb_layers, 4, 1)# initialized -1
-            with torch.no_grad(): # to avoid the indice operation over probs cause in-place modification error.
-                for layer in range(self.nb_layers):
-                    if layer == 0: # scale 0 and scale 1
-                        scale = 0
-                        logits[layer][scale][1] = \
-                            (self.network_arch_parameters[layer][scale][1].log_softmax(dim=-1) * (1/3) + gumbels[layer][scale][1]) / self.tau
-                        probs[layer][scale][1] = F.softmax(logits[layer][scale][1], dim=-1) * (1/3)
-                        # probs over only one value is one, the other two are zeros
-                        #index[layer][scale][0] = probs[layer][scale][1].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale][0] = \
-                            (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        # probs over only one value is one, the other two are zeros
-                        #index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    elif layer == 1: # scale 0, scale 1, and scale 2
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                            (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        #index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale][:2] = \
-                            (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        #index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale][0] = \
-                            (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        #index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    elif layer == 2: # scale 0, scale 1, scale 2, and scale 3
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                            (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        #index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale] = \
-                            (self.network_arch_parameters[layer][scale].log_softmax(dim=-1) + gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        #index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale][:2] = \
-                            (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        #index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
-                        scale = 3
-                        logits[layer][scale][0] = \
-                            (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3)+gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        #index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    else: # 0, 1, 2, 3
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                            (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        #index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale] = \
-                            (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        #index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale] = \
-                            (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        #index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 3
-                        logits[layer][scale][:2] = \
-                            (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        #index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
-
-            # prob of invalid choice is zero, index can always not select invalid choices.
-            index = probs.max(-1, keepdim=True)[1] # [12, 4, 1]
-            # according to index, one_hot
-            one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0) # shape as [12, 4, 3]
-            hardwts = one_h - probs.detach() + probs
-            if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
-                continue
-            else: break
+        log, flag = detect_invalid_index(index, self.nb_layers)
+        assert flag, log
 
         # to get aspp hardwts
         while True:
@@ -533,20 +440,136 @@ class GumbelAutoDeepLab(MyNetwork):
         #                      add super network constraint to shrink network-level search space.
         #
 
-        # get single path, according to network-level hardwts, starts from aspp_hardwts.
+        # After obtaining network_arch_parameters and aspp_arch_parameters.
+        # network_arch_parameters: hardwts
+        # aspp_arch_parameters: aspp_hardwts
+        # todo, in the forward phrase, should perform sample_single_path, not viterbi_decode
+        # it should be consistent with 'index'
+        single_path = self.sample_single_path(self.nb_layers, aspp_index, index) # record next_scale from output of stem2
+        # forward according to single_path
+        size = x.size()[-2:]
+        inter_features = []
 
-        def sample_single_path(nb_layers):
-            # according hardwts and aspp_hardwts
-            # refer viterbi_decode
-            single_path = np.zeros(12).astype('uint8')
-            with torch.no_grad():
-                last_scale = aspp_index
-                single_path[-1] = last_scale
-                for i in range(1, nb_layers): # [1, 11]
-                    single_path[-1-i] = index[-i][single_path[-i]]
-            # len()=12, record the next scale from 0-layer(output of stem2)
-            return single_path
+        x = self.stem0(x)
+        x = self.stem1(x)
+        inter_features.append((-1, x))
+        x = self.stem2(x)
+        inter_features.append((0, x))
 
+        # TODO: prev_prev_scale is considered the same as the next_scale, which is inconsistent with the origin implementation of AutoDeeplab.
+        current_scale = 0
+        for layer in range(self.nb_layers): # single_path loop layer-index w.r.t. output of stem2
+            next_scale = int(single_path[layer])
+            prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
+            cell_index = get_cell_index(layer, current_scale, next_scale)
+            # pay attention:: index from layer-1 (w.r.t. output of stem2 is layer-0)
+            _index = index[layer][next_scale]
+            _weight = hardwts[layer][next_scale]
+            # need prev_prev_feature, prev_features, weight, index, active
+            #print('_single_path_foward layer{} scale{} cell_index{}'.format(layer+1, next_scale, cell_index))
+            state = _single_path_gdas_weightsum(current_scale, next_scale, cell_index, _index, _weight, prev_prev_feature, prev_feature)
+            current_scale = next_scale
+            inter_features.pop(0)
+            inter_features.append((next_scale, state))
+
+        last_scale = inter_features[-1][0]
+        if last_scale == 0:
+            aspp_result = self.aspp4(inter_features[-1][1])
+        elif last_scale == 1:
+            aspp_result = self.aspp8(inter_features[-1][1])
+        elif last_scale == 2:
+            aspp_result = self.aspp16(inter_features[-1][1])
+        elif last_scale == 3:
+            aspp_result = self.aspp32(inter_features[-1][1])
+        else:
+            raise ValueError('invalid last_scale value {}'.format(last_scale))
+
+        aspp_result = F.interpolate(aspp_result, size, mode='bilinear', align_corners=True)
+        return aspp_result
+
+    def _gdas_weighted_sum(self, layer, scale, cell_index, weight, index, prev_prev_c, prev_c):
+        # prev_c is a feature list, including prev_c_up, prev_c_same, prev_c_down
+        inter_result = []
+        if layer == 0:
+            if scale == 0:
+                new_state = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                inter_result = [None, new_state, None]
+            elif scale == 1:
+                # print(detect_inputs_shape(prev_prev_c, prev_c[0]))
+                # print('cell_index', cell_index)
+                new_state = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                inter_result = [new_state, None, None]
+        elif layer == 1:
+            if scale == 0:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                # print(detect_inputs_shape(prev_prev_c, prev_c[1]))
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                inter_result = [None, new_state_1, new_state_2]
+            elif scale == 1:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                # new_state_3 = _forward(cell_index+2, prev_prev_c, prev_c[2])
+                inter_result = [new_state_1, new_state_2, None]
+            elif scale == 2:
+                new_state = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                inter_result = [new_state, None, None]
+        elif layer == 2:
+            if scale == 0:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                inter_result = [None, new_state_1, new_state_2]
+            elif scale == 1:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                new_state_3 = self.cell_gdas_forward(cell_index + 2, prev_prev_c, prev_c[2])
+                inter_result = [new_state_1, new_state_2, new_state_3]
+            elif scale == 2:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                inter_result = [new_state_1, new_state_2, None]
+            elif scale == 3:
+                new_state = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                inter_result = [new_state, None, None]
+        else:
+            if scale == 0:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                inter_result = [None, new_state_1, new_state_2]
+            elif scale == 1:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                new_state_3 = self.cell_gdas_forward(cell_index + 2, prev_prev_c, prev_c[2])
+                inter_result = [new_state_1, new_state_2, new_state_3]
+            elif scale == 2:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                new_state_3 = self.cell_gdas_forward(cell_index + 2, prev_prev_c, prev_c[2])
+                inter_result = [new_state_1, new_state_2, new_state_3]
+            elif scale == 3:
+                new_state_1 = self.cell_gdas_forward(cell_index, prev_prev_c, prev_c[0])
+                new_state_2 = self.cell_gdas_forward(cell_index + 1, prev_prev_c, prev_c[1])
+                inter_result = [new_state_1, new_state_2, None]
+        '''       
+        #rt = 0.
+        assert len(inter_result) == 3, 'error in inter_result of network level gumbel'
+        # weight, one_hot vector of each super network node
+        for _index, state in enumerate(inter_result):
+            if state is None: continue
+            #print(state.shape, wt)
+            if _index == index:
+                print(state.shape, weight[_index])
+                assert state is not None, 'error in network level gumbel'
+                rt += state * weight[_index]
+            else:
+                rt += weight[_index]
+        #return rt
+        '''
+        return sum(
+            state * weight[_index] if _index == index else weight[_index] for _index, state in enumerate(inter_result))
+
+    def forward(self, x):
+
+        hardwts, index = self.get_network_arch_hardwts()
 
         size = x.size()[-2:]
 
@@ -580,7 +603,7 @@ class GumbelAutoDeepLab(MyNetwork):
                                                                 scale2_features, scale3_features)
                 #print(prev_feature[0].shape)
                 # get gdas_output
-                new_state = _gdas_weighted_sum(
+                new_state = self._gdas_weighted_sum(
                     layer, scale, count, _weight, _index,
                     prev_prev_feature, prev_feature
                 )
@@ -613,3 +636,135 @@ class GumbelAutoDeepLab(MyNetwork):
 
         return aspp_result_0 + aspp_result_1 + aspp_result_2 + aspp_result_3
 
+    def cell_gdas_forward(self, cell_index, prev_prev_c, prev_c):
+
+        cell = self.cells[cell_index]
+        # assert cell.cell_arch_parameters.shape == torch.Size(self.nb_edges, cell.n_choices)
+        while True:
+            # TODO: cell_arch_parameters shape as [nb_edges, n_choices]
+            gumbels = -torch.empty_like(cell.cell_arch_parameters).exponential_().log()
+            logits = (cell.cell_arch_parameters.log_softmax(dim=-1) + gumbels) / self.tau
+            probs = F.softmax(logits, dim=-1)
+            index = probs.max(-1, keepdim=True)[1]
+            one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
+            hardwts = one_h - probs.detach() + probs
+            if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
+                continue
+            else:
+                break
+        # print(detect_inputs_shape(prev_prev_c, prev_c))
+        return cell.forward_gdas(prev_prev_c, prev_c, hardwts, index)
+    # get single path, according to network-level hardwts, starts from aspp_hardwts.
+    def sample_single_path(self, nb_layers, aspp_index, network_index):
+        # according hardwts and aspp_hardwts
+        # refer viterbi_decode
+        scale2index = {0: -1, 1: 0, 2: 1}
+        single_path = np.zeros(12).astype('uint8')
+        with torch.no_grad():
+            last_scale = aspp_index
+            single_path[-1] = last_scale
+            for i in range(1, nb_layers):  # [1, 11]
+                single_path[-1 - i] = single_path[-i] + scale2index[network_index[-i][single_path[-i]].item()]
+
+        # network_index[-i][single_path[-i]]:: the choice from single_path[-1-i] to single_path[-i]
+        # single_path[-1-i]:: scale of layer -i
+        # single_path[-i]:: scale of layer -i+1
+        # network_index 0, single_path[-i] - 1, network_index 1, single_path[-i], network_index 2, single_path[-i] + 1
+        # single_path records next_scale, starts from layer-0 (output of stem2)
+
+        # len()=12, record the next scale from 0-layer(output of stem2)
+        return single_path
+
+    def get_network_arch_hardwts(self):
+        while True:
+            # network_arch_parameters shape [12, 4, 3]
+            # both requires_grad
+            gumbels = -torch.empty_like(self.network_arch_parameters).exponential_().log()
+            logits = torch.zeros_like(self.network_arch_parameters)
+            probs = torch.zeros_like(self.network_arch_parameters)
+            #index = torch.zeros(self.nb_layers, 4, 1)# initialized -1
+            with torch.no_grad(): # to avoid the indice operation over probs cause in-place modification error.
+                for layer in range(self.nb_layers):
+                    if layer == 0: # scale 0 and scale 1
+                        scale = 0
+                        logits[layer][scale][1] = \
+                        (self.network_arch_parameters[layer][scale][1].log_softmax(dim=-1) * (1/3) + gumbels[layer][scale][1]) / self.tau
+                        probs[layer][scale][1] = F.softmax(logits[layer][scale][1], dim=-1) * (1/3)
+                        # probs over only one value is one, the other two are zeros
+                        # index[layer][scale][0] = probs[layer][scale][1].max(-1, keepdim=True)[1]
+                        scale = 1
+                        logits[layer][scale][0] = \
+                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
+                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
+                        # probs over only one value is one, the other two are zeros
+                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                    elif layer == 1: # scale 0, scale 1, and scale 2
+                        scale = 0
+                        logits[layer][scale][1:] = \
+                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
+                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
+                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                        scale = 1
+                        logits[layer][scale][:2] = \
+                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][:2]) / self.tau
+                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
+                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+                        scale = 2
+                        logits[layer][scale][0] = \
+                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
+                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
+                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                    elif layer == 2: # scale 0, scale 1, scale 2, and scale 3
+                        scale = 0
+                        logits[layer][scale][1:] = \
+                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
+                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
+                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                        scale = 1
+                        logits[layer][scale] = \
+                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1) + gumbels[layer][scale]) / self.tau
+                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
+                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                        scale = 2
+                        logits[layer][scale][:2] = \
+                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
+                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
+                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+                        scale = 3
+                        logits[layer][scale][0] = \
+                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3)+gumbels[layer][scale][0]) / self.tau
+                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
+                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                    else: # 0, 1, 2, 3
+                        scale = 0
+                        logits[layer][scale][1:] = \
+                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][1:]) / self.tau
+                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
+                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                        scale = 1
+                        logits[layer][scale] = \
+                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
+                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
+                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                        scale = 2
+                        logits[layer][scale] = \
+                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
+                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
+                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                        scale = 3
+                        logits[layer][scale][:2] = \
+                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
+                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
+                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+
+
+                # prob of invalid choice is zero, index can always not select invalid choices.
+                index = probs.max(-1, keepdim=True)[1] # [12, 4, 1]
+                # according to index, one_hot
+                one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0) # shape as [12, 4, 3]
+                hardwts = one_h - probs.detach() + probs
+                if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
+                    continue
+                else: break
+
+        return hardwts, index
