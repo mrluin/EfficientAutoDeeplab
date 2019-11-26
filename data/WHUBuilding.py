@@ -84,6 +84,7 @@ class WHUBuildingDataProvider(DataProvider):
                  save_path,
                  train_batch_size,
                  valid_size,
+                 valid_batch_size,
                  test_batch_size,
                  nb_works):
         # valid size means proportion w.r.t. training set
@@ -111,17 +112,17 @@ class WHUBuildingDataProvider(DataProvider):
             # TODO pin_memory large cpu consumption
             self.train_loader = data.DataLoader(
                 train_dataset, batch_size=train_batch_size, sampler=train_sampler,
-                num_workers=nb_works, pin_memory=False
+                num_workers=nb_works, pin_memory=False,
             )
             # valid batch_size = test_batch_size
             self.valid_loader = data.DataLoader(
-                valid_dataset, batch_size=test_batch_size, sampler=valid_sampler,
-                num_workers=nb_works, pin_memory=False
+                valid_dataset, batch_size=valid_batch_size, sampler=valid_sampler,
+                num_workers=nb_works, pin_memory=False,
             )
 
             true_valid_dataset = WHUBuildingDataset(self.valid_path, transform=False, rt_filename=False)
             self.true_valid_loader = data.DataLoader(
-                true_valid_dataset, batch_size=test_batch_size, shuffle=False,
+                true_valid_dataset, batch_size=valid_batch_size, shuffle=False,
                 num_workers=nb_works, pin_memory=False,
             )
         else:
@@ -132,7 +133,7 @@ class WHUBuildingDataProvider(DataProvider):
             )
             valid_dataset = WHUBuildingDataset(self.valid_path, transform=False, rt_filename=False)
             self.valid_loader = data.DataLoader(
-                valid_dataset, batch_size=train_batch_size, shuffle=False,
+                valid_dataset, batch_size=valid_batch_size, shuffle=False,
                 num_workers=nb_works, pin_memory=False
             )
 

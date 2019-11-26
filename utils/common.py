@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import torch
@@ -6,7 +7,7 @@ import random
 import time
 import numpy as np
 import shutil
-
+import PIL
 __all__ = ['print_experiment_environment', 'set_manual_seed', 'set_logger',
            'AverageMeter', 'get_list_index_split', 'get_next_scale', 'get_list_index', 'get_cell_decode_type',
            'get_prev_c', 'get_padding_size', 'get_monitor_metric', 'get_prev_c_abs', 'get_scale_relation',
@@ -15,14 +16,18 @@ __all__ = ['print_experiment_environment', 'set_manual_seed', 'set_logger',
            ]
 
 def print_experiment_environment():
+    info = "Python  Version  : {:}".format(sys.version.replace('\n', ' '))
+    info += "\nPillow  Version  : {:}".format(PIL.__version__)
+    info += "\nPyTorch Version  : {:}".format(torch.__version__)
+    info += "\ncuDNN   Version  : {:}".format(torch.backends.cudnn.version())
+    info += "\nCUDA available   : {:}".format(torch.cuda.is_available())
+    info += "\nCUDA GPU numbers : {:}".format(torch.cuda.device_count())
+    if 'CUDA_VISIBLE_DEVICES' in os.environ:
+        info += "\nCUDA_VISIBLE_DEVICES={:}".format(os.environ['CUDA_VISIBLE_DEVICES'])
+    else:
+        info += "\nDoes not set CUDA_VISIBLE_DEVICES"
 
-    print('\n'+'-'*30+'->\tworking with PyTorch version {}'.format(torch.__version__))
-    print('-'*30+'->\twith cuda version {}'.format(torch.version.cuda))
-    print('-'*30+'->\tcudnn enabled: {}'.format(torch.backends.cudnn.enabled))
-    print('-'*30+'->\tcudnn version: {}'.format(torch.backends.cudnn.version()))
-
-    print('-'*30+'->\tcudnn benchmark: {}'.format(torch.backends.cudnn.benchmark))
-    print('-'*30+'->\tcudnn deterministic: {}'.format(torch.backends.cudnn.deterministic))
+    return info
 
 def set_manual_seed(seed):
 
@@ -437,3 +442,22 @@ def detect_invalid_index(index, nb_layers):
 
     return None, True
 
+
+def save_configs(run_config, arch_search_config, save_path):
+    run_config_path = os.path.join(save_path, 'run.config')
+    arch_search_config_path = os.path.join(save_path, 'arch_search.config')
+    print('=' * 30+'Run Configs dumps to {}'.format(run_config_path))
+    json.dump(run_config, open(run_config_path, 'w'), indent=4)
+    print('=' * 30+'Arch Search Configs dumps to {}'.format(arch_search_config_path))
+    json.dump(arch_search_config, open(arch_search_config_path, 'w'), indent=4)
+
+
+def convert_secs2time(epoch_time, return_str=False):
+    need_hour = int(epoch_time / 3600)
+    need_mins = int((epoch_time - 3600*need_hour) / 60)
+    need_secs = int(epoch_time - 3600*need_hour - 60*need_mins)
+    if return_str:
+        str = '[{:02d}:{:02d}:{:02d}]'.format(need_hour, need_mins, need_secs)
+        return str
+    else:
+        return need_hour, need_mins, need_secs

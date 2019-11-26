@@ -21,7 +21,7 @@ def obtain_train_search_args():
 
     # debug total_epoch, train_batch_size, test_batch_size
 
-    parser.add_argument('--total_epochs', type=int, default=1)
+    parser.add_argument('--epochs', type=int, default=1)
     # data & dataset
     parser.add_argument('--save_path', type=str, default='/home/jingweipeng/ljb/WHUBuilding', help='root dir of dataset')
     parser.add_argument('--dataset', type=str, default='WHUBuilding', choices=['WHUBuilding'])
@@ -33,27 +33,36 @@ def obtain_train_search_args():
     parser.add_argument('--crop_size', type=int, default=512, help='size of cropped patches')
     # optimization
     parser.add_argument('--init_lr', type=float, default=0.025)
-    parser.add_argument('--lr_scheduler', type=str, default='cosine', choices=['poly', 'step', 'cosine'])
-    # TODO lr_scheduler_param
-    parser.add_argument('--optim_type', type=str, default='sgd', choices=['sgd', 'adam'])
+    parser.add_argument('--scheduler', type=str, default='cosine', choices=['multistep', 'cosine', 'exponential', 'linear'])
+    parser.add_argument('--T_max', type=float, default=None, help='param of cosine') #scheduler param1
+    parser.add_argument('--eta_min', type=float, default=0.001, help='param of cosine, min_learning_rate') #scheduler param2
+    parser.add_argument('--milestones', type=float, default=None, help='param of multistep') #scheduler param3
+    parser.add_argument('--gammas', type=float, default=None, help='param of multistep') #scheduler param4
+    parser.add_argument('--gamma', type=float, default=None, help='param of exponential') #scheduler param5
+    parser.add_argument('--min_lr', type=float, default=None, help='param of linear') #scheduler param6
+
+    parser.add_argument('--weight_optimizer_type', type=str, default='SGD', choices=['SGD','RMSprop'])
     parser.add_argument('--momentum', type=float, default=0.9) #optim param1
     parser.add_argument('--nesterov', action='store_true') #optim param2
-    parser.add_argument('--weight_decay', type=float, default=3e-4)
+    parser.add_argument('--weight_decay', type=float, default=3e-4) #optim param3
     # print and save freq
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
+
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
-    parser.add_argument('--print_freq', type=int, default=10)
-    parser.add_argument('--print_save_arch_information', default=False, action='store_true')
-    parser.add_argument('--save_normal_net_after_training', default=False, action='store_true')
+    parser.add_argument('--train_print_freq', type=int, default=10)
+
+    # these two make no sense.
+    #parser.add_argument('--print_save_arch_information', default=False, action='store_true')
+    #parser.add_argument('--save_normal_net_after_training', default=False, action='store_true')
+
     parser.add_argument('--print_arch_param_step_freq', type=int, default=10)
     # loss function
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
-    parser.add_argument('--loss', type=str, default='ce', choices=['ce'])
-
+    parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
+    parser.add_argument('--label_smoothing', type=float, default=0.) #criterion param1
     # not sure
     # do not use label_smoothing and no_decay_keys be default
-    parser.add_argument('--label_smoothing', type=float, default=0.)
     parser.add_argument('--no_decay_keys', type=str, default=None, choices=[None, 'bn', 'bn#bias'])
 
     ''' net configs '''
@@ -72,11 +81,12 @@ def obtain_train_search_args():
     # parser.add_argument('--stride_stages', type=str, default='2,2,2,1,2,1')
 
     ''' architecture search config, only using gradient-based algorithm by default '''
-    parser.add_argument('--arch_algo', type=str, default='grad', choices=['grad'])
+    #parser.add_argument('--arch_algo', type=str, default='grad', choices=['grad'])
     parser.add_argument('--warmup_epochs', type=int, default=20)
+    parser.add_argument('--warmup_lr', type=float, default=0.05, help='init_lr of warmup phase')
     parser.add_argument('--arch_init_type', type=str, default='normal', choices=['normal', 'uniform'])
     parser.add_argument('--arch_init_ratio', type=float, default=1e-3)
-    parser.add_argument('--arch_optim_type', type=str, default='adam', choices=['sgd', 'adam'])
+    parser.add_argument('--arch_optimizer_type', type=str, default='adam', choices=['sgd', 'adam'])
     parser.add_argument('--arch_lr', type=float, default=3e-3)
     parser.add_argument('--arch_adam_beta1', type=float, default=0) # arch_optim_param1
     parser.add_argument('--arch_adam_beta2', type=float, default=0.999) # arch_optim_param2
@@ -84,17 +94,17 @@ def obtain_train_search_args():
     parser.add_argument('--arch_weight_decay', type=float, default=1e-3)
 
     # TODO related hardware constraint, None by default
-    parser.add_argument('--target_hardware', type=str, default=None, choices=['mobile', 'cpu', 'gpu8', 'flops', None])
+    #parser.add_argument('--target_hardware', type=str, default=None, choices=['mobile', 'cpu', 'gpu8', 'flops', None])
 
     #
-    parser.add_argument('--grad_update_arch_param_every', type=int, default=1, help='how often update arch parameters, iterations')
-    parser.add_argument('--grad_update_steps', type=int, default=1, help='how many times performing update when updating arch_params')
-    parser.add_argument('--grad_binary_mode', type=str, default='full_v2', choices=['full', 'full_v2', 'two'], help='forward and backward mode')
-    parser.add_argument('--grad_data_batch', type=int, default=None, help='batch_size of valid set (from training set)')
-    parser.add_argument('--grad_reg_loss_type', type=str, default='mul#log', choices=['add#linear', 'mul#log'])
-    parser.add_argument('--grad_reg_loss_lambda', type=float, default=1e-1) # reg param
-    parser.add_argument('--grad_reg_loss_alpha', type=float, default=0.2)  # reg param
-    parser.add_argument('--grad_reg_loss_beta', type=float, default=0.3)  # reg param
+    parser.add_argument('--arch_param_update_frequency', type=int, default=1, help='how often update arch parameters, iterations')
+    parser.add_argument('--arch_param_update_steps', type=int, default=1, help='how many times performing update when updating arch_params')
+    #parser.add_argument('--grad_binary_mode', type=str, default='full_v2', choices=['full', 'full_v2', 'two'], help='forward and backward mode')
+    #parser.add_argument('--grad_data_batch', type=int, default=None, help='batch_size of valid set (from training set)')
+    parser.add_argument('--reg_loss_type', type=str, default='mul#log', choices=['add#linear', 'mul#log'])
+    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param
+    parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
+    parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
 
     args = parser.parse_args()
     return args

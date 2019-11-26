@@ -176,8 +176,8 @@ class GumbelCell(MyModule):
 
         self.finalconv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
 
-        self.edge_keys = sorted(list(self.ops.keys()))
-        self.edge2index = {key:i for i, key in enumerate(self.edge_keys)}
+        self.edge_keys = sorted(list(self.ops.keys())) # 'sorted by {:}<-{:}'
+        self.edge2index = {key:i for i, key in enumerate(self.edge_keys)} # {:}<-{:} : index
         self.nb_edges = len(self.ops)
 
         self.cell_arch_parameters = nn.Parameter(torch.Tensor(self.nb_edges, self.n_choice))

@@ -5,15 +5,16 @@ import torch
 import logging
 import torch.nn as nn
 import json
+import torch.optim as optim
 from datetime import timedelta
 from data.WHUBuilding import WHUBuildingDataProvider
 from utils.common import set_manual_seed
 from utils.common import get_monitor_metric
-from utils.common import AverageMeter
+from utils.common import AverageMeter, convert_secs2time
 from utils.common import count_parameters
-from utils.loss import SegmentationLosses
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
+from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -22,22 +23,22 @@ from utils.calculators import calculate_weights_labels
 #             2. processes related to training phrase
 '''
 class RunConfig:
-    def __init__(self, total_epochs,
-                 gpu_ids, workers,
-                 save_path, dataset, nb_classes, train_batch_size, valid_size, test_batch_size,
+    def __init__(self, epochs, warmup_epochs, gpu_ids, workers,
+                 save_path, dataset, nb_classes,
+                 train_batch_size, valid_batch_size, test_batch_size, valid_size,
                  ori_size, crop_size,
                  init_lr, lr_scheduler, lr_scheduler_param,
-                 optim_type, optim_params, weight_decay,
-                 label_smoothing, no_decay_keys,
+                 optimizer_config,
                  model_init, init_div_groups, filter_multiplier, block_multiplier, steps, bn_momentum, bn_eps, dropout, nb_layers,
-                 validation_freq, print_freq, save_ckpt_freq, monitor, print_save_arch_information, save_normal_net_after_training,
+                 validation_freq, train_print_freq, save_ckpt_freq, monitor,
                  print_arch_param_step_freq,
                  use_unbalanced_weights,
                  conv_candidates,
                  **kwargs):
 
-        self.total_epochs = total_epochs
-
+        self.epochs = epochs
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = self.epochs + self.warmup_epochs
         self.gpu_ids = gpu_ids
         self.workers = workers
 
@@ -45,8 +46,9 @@ class RunConfig:
         self.dataset = dataset
         self.nb_classes = nb_classes
         self.train_batch_size = train_batch_size
-        self.valid_size = valid_size
+        self.valid_batch_size = valid_batch_size
         self.test_batch_size = test_batch_size
+        self.valid_size = valid_size
 
         self.ori_size = ori_size
         self.crop_size = crop_size
@@ -55,14 +57,11 @@ class RunConfig:
         self.lr_scheduler = lr_scheduler
         self.lr_scheduler_param = lr_scheduler_param
 
-        self.optim_type = optim_type
-        self.optim_params = optim_params
-        self.weight_decay = weight_decay
+        self.optimizer_config = optimizer_config
 
-        self.label_smoothing = label_smoothing
-        self.no_decay_keys = no_decay_keys
 
-        # TODO: add network config
+        #self.no_decay_keys = no_decay_keys
+
         self.model_init = model_init
         self.init_div_groups = init_div_groups
         self.filter_multiplier = filter_multiplier
@@ -73,13 +72,10 @@ class RunConfig:
         self.dropout = dropout
         self.nb_layers = nb_layers
 
-
         self.validation_freq = validation_freq
-        self.print_freq = print_freq
+        self.train_print_freq = train_print_freq
         self.save_ckpt_freq = save_ckpt_freq
         self.monitor = monitor
-        self.print_save_arch_information = print_save_arch_information
-        self.save_normal_net_after_training = save_normal_net_after_training
         self.print_arch_param_step_freq = print_arch_param_step_freq
 
         self.use_unbalanced_weights = use_unbalanced_weights
@@ -88,78 +84,90 @@ class RunConfig:
 
         self._data_provider = None
         self._train_iter, self._valid_iter, self._test_iter = None, None, None
-        self.optimizer = None
     @property
     def config(self):
         config = {
             #'type': type(self)
         }
         for key in self.__dict__:
-            # SGD cannot be serializable
-            if not key.startswith('_') and not key.startswith('optimizer'):
+            # SGD cannot be serializable, so optimizer is excluded
+            # if not key.startswith('_') and not key.startswith('optimizer'):
+            if not key.startswith('_'):
                 config[key] = self.__dict__[key]
         return config
 
     def copy(self):
         return RunConfig(**self.config)
+    ''' get weight_optimizer, scheduler, and training criterion '''
+    def get_optim_scheduler_criterion(self, parameters, optimizer_config):
 
-    ''' learning rate '''
-    def calc_learning_rate(self, epoch, iteration=0, iter_per_epoch=None, lr_max=None, warmup_lr=False):
-        '''
-            step mode: lr = base_lr * 0.1 ^ (floor(epoch-1/lr_step))
-            cosine mode: lr = base_lr * 0.5 * (1+cos(iter/maxiter))
-            poly mode: lr = base_lr * (1-iter/maxiter)^0.9
+        # only for weight, optimizer config needs:
+        # 1. weight_optimizer_type
+        # 2. weight_init_lr
+        # 3. optimizer params
+        # 4. weight_scheduler
+        # 5. scheduler params
+        # 6. criterion type
+        # 7. criterion params
 
-            from args
-            :attr: self.lr_scheduler
-            :attr: self.init_lr
-            :attr: self.total_epochs
-
-            :attr: iteration
-            :attr: iter_per_epoch
-            :attr: lr_max, warmup_lr
-            # TODO poly and step need lr_scheduler_params
-            # TODO min_lr
-        '''
-        total_iter = self.total_epochs * iter_per_epoch
-        current_iter = epoch * iter_per_epoch + iteration
-        if warmup_lr and lr_max is not None:
-            lr = 0.5 * lr_max * (1 + math.cos(math.pi * current_iter / total_iter))
+        # todo if it has no_decay_keys
+        if optimizer_config.optimizer_type == 'SGD':
+            optimizer_params = optimizer_config['optimizer_params']
+            momentum, nesterov, weight_decay = optimizer_params.get('momentum'), optimizer_params.get('nesterov'), optimizer_params.get('weight_decay')
+            optimizer = torch.optim.SGD(parameters, optimizer_config['init_lr'], momentum=momentum, nesterov=nesterov, weight_decay=weight_decay)
+        elif optimizer_config.optimizer_type == 'RMSprop':
+            optimizer_params = optimizer_config['optimizer_params']
+            momentum, weight_decay = optimizer_params.get('momentum'), optimizer_params.get('weight_decay')
+            optimizer = torch.optim.RMSprop(parameters, optimizer_config['init_lr'], momentum=momentum, weight_decay=weight_decay)
+        elif optimizer_config.optimizer_type == 'Adam':
+            raise NotImplementedError
+            # has issue in Adam optimizer
+            #optimizer = torch.optim.Adam(parameters, optimizer_config.init_lr, **optimizer_config.optimizer_params)
         else:
+            raise ValueError('invalid optim : {:}'.format(optimizer_config.optimizer_type))
 
-            if self.lr_scheduler == 'cosine':
-                lr = self.init_lr * 0.5 * (1 + math.cos(math.pi * current_iter / total_iter))
-            elif self.lr_scheduler == 'poly':
-                #lr = self.init_lr * pow((1 - (iteration - self.warmup_iters) / (total_iter - self.warmup_iters)), 0.9)
-                raise NotImplementedError
-            elif self.lr_scheduler == 'step':
-                raise NotImplementedError
-            else:
-                raise NotImplementedError
-        return lr
+        if optimizer_config.scheduler == 'cosine':
+            scheduler_params = optimizer_config['scheduler_params']
+            T_max = scheduler_params['T_max'] if scheduler_params.get('T_max') is not None else scheduler_params.get('epochs')
+            eta_min = scheduler_params['eta_min']
+            #scheduler = CosineAnnealingLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, T_max, scheduler_params.eta_min)
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max, eta_min)
+        elif optimizer_config.scheduler == 'multistep':
+            scheduler_params = optimizer_config['scheduler_params']
+            milestones, gammas = scheduler_params['milestones'], scheduler_params['gammas']
+            #scheduler = MultiStepLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, scheduler_params.milestones, scheduler_params.gammas)
+            scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones, gammas)
+        elif optimizer_config.scheduler == 'exponential':
+            scheduler_params = optimizer_config['scheduler_params']
+            gamma = scheduler_params['gamma']
+            #scheduler = ExponentialLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, scheduler_params.gamma)
+            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma)
+        elif optimizer_config.scheduler == 'linear':
+            raise NotImplementedError
+        else:
+            raise ValueError('invalid scheduler : {:}'.format(optimizer_config.scheduler))
 
-    def adjust_learning_rate(self, optimizer, epoch, iteration, iter_per_epoch=None, lr_max=None, warmup_lr=False):
-        new_lr = self.calc_learning_rate(epoch, iteration, iter_per_epoch, lr_max, warmup_lr)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = new_lr
-        return new_lr
-    '''
-    @property
-    def learning_rate(self):
-        return self.optimizer.param_groups[0]['lr']
-        '''
+        if optimizer_config.criterion == 'Softmax':
+            criterion = torch.nn.CrossEntropyLoss()
+        elif optimizer_config.criterion == 'SmoothSoftmax':
+            criterion_params = optimizer_config['criterion_params']
+            criterion = CrossEntropyLabelSmooth(optimizer_config.class_num, criterion_params.label_smooth)
+        elif optimizer_config.criterion == 'WeightedSoftmax':
+            # TODO: calculate_weights_labels arguments
+            classes_weights = calculate_weights_labels()
+            criterion = torch.nn.CrossEntropyLoss(weight=classes_weights)
+        else:
+            raise ValueError('invalid criterion : {:}'.format(optimizer_config.criterion))
+
+        return optimizer, scheduler, criterion
 
     ''' data provider '''
     @property
     def data_config(self):
-        # need             save_path,
-        #                  train_batch_size,
-        #                  valid_size,
-        #                  test_batch_size,
-        #                  nb_works
         return {
             'train_batch_size': self.train_batch_size,
             'test_batch_size': self.test_batch_size,
+            'valid_batch_size': self.valid_batch_size,
             'valid_size': self.valid_size,
             'nb_works': self.workers,
             'save_path': self.save_path,
@@ -184,10 +192,6 @@ class RunConfig:
     @property
     def valid_loader(self):
         return self.data_provider.valid_loader
-
-    @property
-    def true_valid_loader(self):
-        return self.data_provider.true_valid_loader
 
     @property
     def test_loader(self):
@@ -229,37 +233,20 @@ class RunConfig:
             data = next(self._test_iter)
         return data
 
-    ''' optimizer '''
-    def build_optimizer(self, net_params):
-        '''
-        :param net_params: len(net_params) == 2, net_params[0] with weight_decay, net_params[1] without weight_decay
-        '''
-        if self.optim_type == 'sgd':
-            optim_params = {} if self.optim_params is None else self.optim_params
-            momentum, nesterov = optim_params.get('momentum', 0.9), optim_params.get('nesterov', True)
-            if self.no_decay_keys:
-                self.optimizer = torch.optim.SGD([
-                    {'params': net_params[0], 'weight_decay': self.weight_decay},
-                    {'params': net_params[1], 'weight_decay': 0}
-                ], self.init_lr, momentum=momentum, nesterov=nesterov)
-            else:
-                self.optimizer = torch.optim.SGD(net_params, self.init_lr, momentum, weight_decay=self.weight_decay, nesterov=nesterov)
-        else: raise NotImplementedError
 
-        return self.optimizer
 
 class RunManager:
+    def __init__(self, path, super_network, run_config: RunConfig, out_log=True):
 
-    def __init__(self, path, net, run_config: RunConfig, out_log=True, measure_latency=None):
+        self.path = path # root path to workspace
+        self.ckpt_save_path = os.path.join(self.path, 'checkpoint')
+        self.log_save_path =  os.path.join(self.path, 'logs')
+        self.prediction_save_path =  os.path.join(self.path, 'predictions')
+        os.makedirs(self.ckpt_save_path, exist_ok=True)
+        os.makedirs(self.log_save_path, exist_ok=True)
+        os.makedirs(self.prediction_save_path, exist_ok=True)
 
-        # logs have
-
-        self.path = path
-        self._save_path = None # path to checkpoint file
-        self._log_path = None # path to logs file
-        self._prediction_path = None # path to predictions file
-
-        self.net = net
+        self.model = super_network
         self.run_config = run_config
         self.out_log = out_log
 
@@ -267,68 +254,34 @@ class RunManager:
         self.start_epoch = 0
 
         # initialize model
-        # TODO model.init_model
-        self.net.init_model(self.run_config.model_init, self.run_config.init_div_groups)
-
-        # a copy of net on cpu for latency estimation & mobile latency
-
-        # move network to GPU if available
-        # use single gpu to train by default
+        self.model.init_model(self.run_config.model_init, self.run_config.init_div_groups)
         if torch.cuda.is_available():
             self.device = torch.device('cuda:{}'.format(self.run_config.gpu_ids))
-            print(self.device)
-            self.net.to(self.device)
+            print('Device: {}'.format(self.device))
+            self.model.to(self.device)
         else:
             raise ValueError('do not support cpu version')
 
-        # TODO: print net info
-        # self.print_net_info(measure_latency)
-
-        # create loss function
-        classes_weight = None
-        if self.run_config.use_unbalanced_weights:
-            classes_weight = calculate_weights_labels(self.path, self.run_config.dataset, self.run_config.train_loader,
-                                                      self.run_config.nb_classes)
-        label_smoothing = self.run_config.label_smoothing
-        #self.criterion = SegmentationLosses(classes_weight, label_smoothing, cuda=self.run_config.gpu_ids)
-        # TODO: modification in self.criterion
-        self.criterion = nn.CrossEntropyLoss().to(self.device)
-
-        if self.run_config.no_decay_keys:
-            keys = self.run_config.no_decay_keys.split('#')
-            self.optimizer = self.run_config.build_optimizer([
-                # TODO get two groups of parameters according to keys
-            ])
-        else:
-            self.optimizer = self.run_config.build_optimizer(self.net.weight_parameters())
-        #self.optimizer.cuda()
-        # TODO:
-        #self.optimizer = self.optimizer.to(self.device)
+        # get optimizer, scheduler, and loss function
+        optimizer, scheduler, criterion = self.run_config.get_optim_scheduler_criterion(
+            parameters=self.model.weight_parameters(), optimizer_config=self.run_config.optimizer_config
+        )
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.criterion = criterion
 
     ''' save path and log path '''
     @property
-    def save_path(self):
-        if self._save_path is None:
-            save_path = os.path.join(self.path, 'checkpoint')
-            os.makedirs(save_path, exist_ok=True)
-            self._save_path = save_path
-        return self._save_path
+    def get_ckpt_save_path(self):
+        return self.ckpt_save_path
 
     @property
-    def log_path(self):
-        if self._log_path is None:
-            log_path = os.path.join(self.path, 'logs')
-            os.makedirs(log_path, exist_ok=True)
-            self._log_path = log_path
-        return self._log_path
+    def get_log_save_path(self):
+        return self.log_save_path
 
     @property
     def prediction_path(self):
-        if self._prediction_path is None:
-            prediction_path = os.path.join(self.path, 'predictions')
-            os.makedirs(prediction_path, exist_ok=True)
-            self._prediction_path = prediction_path
-        return self._prediction_path
+        return self.prediction_save_path
 
     def build_monitor(self, monitor):
         monitor_mode = monitor.split('#')[0]
@@ -339,7 +292,6 @@ class RunManager:
 
     ''' net info '''
     def net_flops(self):
-        # arch_network_parameter, can only get expected flops
         # TODO: get flops of specific architecture, related to architecture parameter
 
         data_shape = [1] + list(self.run_config.data_provider.data_shape)
@@ -352,204 +304,121 @@ class RunManager:
             flop, _ = net.get_flops(input_var)
         return flop
 
-
-    def net_latency(self):
-        raise NotImplementedError
-
-    def print_net_info(self, measure_latency=None):
-        # network architecture
-        if self.out_log:
-            #logging.info(self.net)
-            print(self.net)
-        # parameters
-        if isinstance(self.net, nn.DataParallel):
-            raise NotImplementedError
-        else:
-            total_params = count_parameters(self.net)
-
-        if self.out_log:
-            #logging.info('Total training params: {:.2f}M'.format(total_params / 1e6))
-            print('Total Training Params: {:.2f}M'.format(total_params / 1e6))
-        net_info = {
-            'param': '{:.2f}M'.format(total_params / 1e6)
-        }
-
-        # TODO: flops
-        #flops = self.net_flops()
-        #if self.out_log:
-            #logging.info('Total FLOPs: {:.2f}M'.format(flops / 1e6))
-        #    print('Total Training FLOPs: {:.2f}M'.format(flops / 1e6))
-        #net_info['flops'] = '{:.2f}M'.format(flops / 1e6)
-
-        # TODO: latency constraint
-        # not implement
-        # write net_info logs
-        with open('{}/net_info.txt'.format(self.log_path), 'w') as fout:
-            fout.write(json.dumps(net_info, indent=4) + '\n')
-
     ''' save and load models '''
-    def save_model(self, epoch, checkpoint=None, is_best=False, checkpoint_file_name=None):
+    def save_model(self, epoch, checkpoint=None, is_warmup=False, is_best=False, checkpoint_file_name=None):
 
-        # when to save self.run_config.save_freq
-        # :epoch: √
-        # :checkpoint:
-        # :is_best: √
-        # :checkpoint_file_name:
-        assert checkpoint is not None, 'checkpoint is None'
-        '''
-        if checkpoint is None:
-            checkpoint = {'state_dict', self.net.state_dict()}
-            # TODO: confirm, parallel or not
-            # self.net.module.state_dict() or self.net.state_dict()
-            '''
+        # what need to save
+        # 1. network state_dict                       √
+        # 2. weight_optimizer state_dict              √
+        # 3. arch_optimizer state_dict                √ √
+        # 4. weight_scheduler state_dict              √
+        # 5. arch_scheduler state_dict if is not None √ √
+        # 6. epochs, or start_epochs                  √
+        # 7. warmup or not                            √
+        # 8. best_monitor and best_value              √
+        # 9. the best one, and per frequency one      √
+
+        # need modifications
         if checkpoint_file_name is None:
-            checkpoint_file_name = 'checkpoint-{}.pth.tar'.format(epoch)
-
-        checkpoint['dataset'] = self.run_config.dataset
-        # other information has been included in checkpoint
-
-        latest_fname = os.path.join(self.save_path, 'latest.txt') # record saved checkpoint_file
-        model_path = os.path.join(self.save_path, checkpoint_file_name)
-        with open(latest_fname, 'w') as fout:
-            fout.write(model_path + '\n')
-
-        torch.save(checkpoint, model_path)
-
-        if is_best:
-            best_path = os.path.join(self.save_path, 'checkpoint-best.pth.tar')
-            #torch.save({'state_dict': checkpoint['state_dict']}, best_path)
-            torch.save(checkpoint, best_path)
-
-    def load_model(self, ckptfile_path=None):
-
-        assert ckptfile_path is not None and os.path.exists(ckptfile_path),\
-            'checkpoint_file can not find'
-
-        '''   
-        latest_fname = os.path.join(self.save_path, 'latest.txt')
-        # if not point to specific checkpoint_file
-        if ckpt_filename is None and os.path.exists(latest_fname):
-            with open(latest_fname, 'r') as fin:
-                ckpt_filename = fin.readline()
-                if ckpt_filename[-1] == '\n':
-                    ckpt_filename = ckpt_filename[:-1]
-        # get the latest one, according to latest.txt
-        '''
-        try:
-            '''
-            if ckpt_filename is None or not os.path.exists(ckpt_filename):
-                # TODO: this case has issue
-                ckpt_filename = '{}/checkpoint.pth.tar'.format(self.save_path)
-                '''
-            if self.out_log:
-                #logging.info('Loading Checkpoint {}'.format(ckptfile_path))
-                print('='*30+'=>\tLoading Checkpoint {}'.format(ckptfile_path))
-
-            if torch.cuda.is_available():
-                checkpoint = torch.load(ckptfile_path)
+            if is_warmup:
+                checkpoint_file_name = 'checkpoint-warmup.pth.tar'
             else:
-                checkpoint = torch.load(ckptfile_path, map_location='cpu')
+                if is_best: checkpoint_file_name = 'checkpoint-best.pth.tar'
+                else: checkpoint_file_name = 'checkpoint.pth.tar'
 
-            model_dict = self.net.state_dict()
-            model_dict.update(checkpoint['state_dict'])
-            self.net.load_state_dict(model_dict)
+        if checkpoint is not None:
+            # not None, used in nas_manager, when warmup, train search.
+            # can offer warmup, arch_optimizer information
+            if is_warmup:
+                # in warmup phase, need save
 
-            # TODO:  why set new manual seed
-            new_manual_seed = int(time.time())
-            set_manual_seed(new_manual_seed)
+                save_path = os.path.join(self.ckpt_save_path, 'warmup', checkpoint_file_name)
+            else:
+                checkpoint.update({
+                    'state_dict': self.model.state_dict(),
+                    'weight_optimizer': self.optimizer.state_dict(),
+                    'weight_scheduler': self.scheduler.state_dict(),
+                    'best_monitor': (self.monitor_metric, self.best_monitor),
+                    'warmup': is_warmup,
+                    'start_epochs': epoch + 1,
+                })
+                save_path = os.path.join(self.ckpt_save_path, 'train_search', checkpoint_file_name)
+        else: # checkpoint is None in only train phase, in self.train()
 
-            # other elements
-            if 'epoch' in checkpoint:
-                self.start_epoch = checkpoint['epoch'] + 1
-            if 'best_{}'.format(self.monitor_metric) in checkpoint:
-                self.best_monitor = checkpoint['best_{}'.format(self.monitor_metric)]
-            # optimizer for only training, weight_optimizer and arch_optimizer for train_search phrase
-            if 'optimizer' in checkpoint:
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
-            if self.out_log:
-                #logging.info('Loaded Checkpoint {}'.format(ckptfile_path))
-                print('='*30+'=>\tLoaded Checkpoint {}'.format(ckptfile_path))
-        except Exception:
-            if self.out_log:
-                #logging.info('Fail to load Checkpoint {}'.format(ckptfile_path))
-                print('='*30+'=>\tFail to load Checkpoint {}'.format(ckptfile_path))
+            state_dict = self.model.state_dict()
+            #for key in list(state_dict.keys()):
+            #    if 'cell_arch_parameters' in key or 'network_arch_parameters' in key or 'aspp_arch_parameters' in key:
+            #        state_dict.pop(key)
+            checkpoint = {
+                'state_dict': state_dict,
+                'weight_optimizer': self.optimizer.state_dict(),
+                'weight_scheduler': self.scheduler.state_dict(),
+                'best_monitor': (self.monitor_metric, self.best_monitor),
+                'start_epochs': epoch + 1,
+            }
+            save_path = os.path.join(self.ckpt_save_path, 'retrain', checkpoint_file_name)
+        torch.save(checkpoint, save_path)
 
-    def save_config(self, print_info=True):
-        # dumps run_config and net_config to model_folder
-        os.makedirs(self.path, exist_ok=True)
-        net_config_save_path = os.path.join(self.path, 'net.config')
-        # TODO: net.config
-        # net_config, related to network architecture
-        # and net_info, parameters, flops, and latency
-        json.dump(self.net.config, open(net_config_save_path, 'w'), indent=4)
-        if print_info:
-            #logging.info('Network Configs dumps to {}'.format(net_config_save_path))
-            print('='*30,'Network Configs dumps to {}'.format(net_config_save_path))
+    def load_model(self, checkpoint_file):
+        # only used in run_manager
+        assert checkpoint_file is not None and os.path.exists(checkpoint_file),\
+            'checkpoint_file can not be found'
+        print('=' * 30 + '=>\tLoading Checkpoint {}'.format(checkpoint_file))
+        if torch.cuda.is_available():
+            checkpoint = torch.load(checkpoint_file)
+        else:
+            checkpoint = torch.load(checkpoint_file, map_location='cpu')
+        model_dict = self.model.state_dict()
+        model_dict.update(checkpoint['state_dict'])
+        self.model.load_state_dict(model_dict)
 
-        run_config_save_path = os.path.join(self.path, 'run.config')
-        json.dump(self.run_config.config, open(run_config_save_path, 'w'), indent=4)
-        if print_info:
-            #logging.info('Run Configs dumps to {}'.format(run_config_save_path))
-            print('='*30, 'Run Configs dumps to {}'.format(run_config_save_path))
+        # TODO: why set new manual seed
+        new_manual_seed = int(time.time())
+        set_manual_seed(new_manual_seed)
 
-    ''' train and test '''
+        self.start_epoch = checkpoint['start_epochs']
+        self.monitor_metric, self.best_monitor = checkpoint['best_monitor']
+        self.optimizer.load_state_dict(checkpoint['weight_optimizer'])
+        scheduler_dict = self.scheduler.state_dict()
+        scheduler_dict.update(checkpoint['weight_scheduler'])
+        self.scheduler.load_state_dict(scheduler_dict)
+
+        # TODO: something should loaded in nas_manager, related to warm_up, train search, and arch_optimizer info
+
+        print('=' * 30 + '=>\tLoaded Checkpoint {}'.format(checkpoint_file))
+
     def write_log(self, log_str, prefix, should_print=True):
-        assert prefix in ['gradient_search', 'arch', 'train', 'valid', 'test'], 'invalid prefix'
-        # train log
-        # valid log
-        # test log
-        # gradient_search log
-        # arch log
-        if prefix in ['gradient_search', 'arch']:
-            with open(os.path.join(self.log_path, prefix+'.txt'), 'a') as fout:
-                fout.write(log_str)
-                fout.flush()
-        # valid + test
-        if prefix in ['valid', 'test']:
-            with open(os.path.join(self.log_path, 'valid_test_console.txt'), 'a') as fout:
-                if prefix == 'test':
-                    fout.write('=' * 10 + '\n')
-                    fout.write(log_str + '\n')
-                    fout.write('=' * 10 + '\n')
-                fout.write(log_str + '\n')
-                fout.flush()
-
-        # train + valid + test
-        # train re-confirmed
-        if prefix in ['valid', 'test', 'train']:
-            with open(os.path.join(self.log_path, 'train_console.txt'), 'a') as fout:
-                if prefix in ['valid', 'test']:
-                    fout.write('=' * 10 + '\n')
-                    fout.write(log_str + '\n')
-                    fout.write('=' * 10 + '\n')
-                fout.write(log_str + '\n')
-                fout.flush()
+        # needs three types logs,
+        # 1. train_search_log
+        # 2. validation_log
+        # 3. testing_log
+        # 4. arch_log, records arch_information
+        # 5. retrain log
+        assert prefix in ['train_search', 'validation', 'testing', 'arch', 'train', 'warmup']
+        with open(os.path.join(self.log_save_path, prefix + '.txt'), 'a') as fout:
+            fout.write('=' * 10 + '\n')
+            fout.write(log_str + '\n')
+            fout.flush()
         if should_print:
-            #logging.info(log_str)
             print(log_str)
 
-    def validate(self, is_test=False, net=None, use_train_mode=False):
-        if is_test:
-            # TODO: if under the test mode, it should derive the best network, different from in validation mode.
-            # 1. super network viterbi_decodde, get actual_path
-            # 2. cells genotype decode, which are on the actual_path in the super network
-            # 3. according to actual_path and cells genotypes, construct the best network.
-            # 4. use the best network, to perform test phrase.
+    def validate(self, epoch, is_test=False, use_train_mode=False):
+        #
+        # TODO: test and validate should both use the derived model.
+        #
+        # 1. super network viterbi_decodde, get actual_path
+        # 2. cells genotype decode, which are on the actual_path in the super network
+        # 3. according to actual_path and cells genotypes, construct the best network.
+        # 4. use the best network, to perform test phrase.
 
-
-            data_loader = self.run_config.test_loader
-        else:
-            data_loader = self.run_config.valid_loader
-        if net is None:
-            net = self.net
-        if use_train_mode:
-            net.train()
-        else:
-            net.eval()
+        if is_test: data_loader = self.run_config.test_loader
+        else: data_loader = self.run_config.valid_loader
+        model = self.model
+        if use_train_mode: model.train()
+        else: model.eval()
 
         batch_time = AverageMeter()
         data_time = AverageMeter()
-
         losses = AverageMeter()
         mious = AverageMeter()
         fscores = AverageMeter()
@@ -564,8 +433,11 @@ class RunManager:
                 else:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end0)
-                # todo, change to net.single_path_forward for gumbel_super_network
-                logits = net.single_path_forward(datas)
+
+
+                # TODO: need modification, in validation and testing phrase, forward in derived model.
+                logits = model.single_path_forward(datas)
+
                 loss = self.criterion(logits, targets)
                 # metrics calculate and update
                 evaluator = Evaluator(self.run_config.nb_classes)
@@ -581,27 +453,18 @@ class RunManager:
                 batch_time.update(time.time() - end0)
                 end0 = time.time()
 
-                if i % self.run_config.print_freq == 0 or i + 1 == len(data_loader):
-                    if is_test:
-                        prefix = 'Test'
-                    else:
-                        prefix = 'Valid'
-                    test_log = prefix + '\t[{0}/{1}]\n' \
-                                        'Time\t{batch_time.val:.4f}\t({batch_time.avg:.4f})\n' \
-                                        'Data\t{data_time.val:.4f}\t({data_time.avg:.4f})\n' \
-                                        'Loss\t{loss.val:.6f}\t({loss.avg:.6f})\n' \
-                                        'Acc\t{acc.val:6.4f}\t({acc.avg:6.4f})\n' \
-                                        'mIoU\t{mIoU.val:6.4f}\t({mIoU.avg:6.4f})\n' \
-                                        'F1\t{F1.val:6.4f}\t({F1.avg:6.4f})\n'\
-                        .format(i, len(data_loader)-1, batch_time=batch_time, data_time=data_time,
-                                loss=losses, acc=accs, mIoU=mious, F1=fscores)
-                    # TODO: write test or valid logs
-                    #logging.info(test_log)
-                    #self.write_log(test_log, prefix=prefix, should_print=True)
-
+            if is_test: prefix = 'testing'
+            else: prefix = 'validation'
+            use_time = 'Time Duration: {:}, Data Time : {:}'\
+                .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
+            epoch_str = '{:03d}-{:03d}'.format(epoch, self.run_config.total_epochs)
+            log_str = '[{:}] {:} : loss={:.2f}, accuracy={:.2f}, miou={:.2f}, f1score={:.2f}'\
+                .format(epoch_str, prefix, losses.average, accs.average, mious.average, fscores.average)
+            log_str = use_time+'\n'+log_str
+            self.write_log(log_str, prefix)
         return losses.avg, accs.avg, mious.avg, fscores.avg
 
-    def train_one_epoch(self, adjust_lr_func, train_log_func):
+    def train_one_epoch(self, epoch, train_log_func):
 
         batch_time = AverageMeter()
         data_time = AverageMeter()
@@ -610,8 +473,10 @@ class RunManager:
         mious = AverageMeter()
         fscores = AverageMeter()
 
-        self.net.train()
+        self.model.train()
 
+        self.scheduler.step(epoch)
+        train_lr = self.scheduler.get_lr()
         end = time.time()
         for i, (datas, targets) in enumerate(self.run_config.train_loader):
             if torch.cuda.is_available():
@@ -620,14 +485,9 @@ class RunManager:
             else:
                 raise ValueError('do not support cpu version')
             data_time.update(time.time()-end)
-            new_lr = adjust_lr_func(i)
 
-            logits = self.net(datas)
-            # do not use label_smoothing by default
-            if self.run_config.label_smoothing > 0:
-                raise NotImplementedError
-            else:
-                loss = self.criterion(logits, targets)
+            logits = self.model(datas)
+            loss = self.criterion(logits, targets)
             evaluator = Evaluator(self.run_config.nb_classes)
             evaluator.add_batch(targets, logits)
             acc = evaluator.Pixel_Accuracy()
@@ -639,76 +499,58 @@ class RunManager:
             mious.update(miou.item(), datas.size(0))
             fscores.update(fscore.item(), datas.size(0))
             # update parameters
-            # TODO: self.net.zero_grad() or self.optimizer.zero_grad()
-            #self.optimizer.zero_grad()
-            self.net.zero_grad()
+            self.model.zero_grad()
             loss.backward()
-            self.optimizer.step()
+            self.optimizer.step() # only update network_weight_parameters
             # elapsed time
             batch_time.update(time.time()-end)
             end = time.time()
 
             # within one epoch, per iteration print train_log
-            if i % self.run_config.print_freq or (i+1) == len(self.run_config.train_loader):
-                batch_log = train_log_func(i, batch_time, data_time, losses, accs, mious, fscores, new_lr)
-
+            if i % self.run_config.train_print_freq or (i+1) == len(self.run_config.train_loader):
+                batch_log = train_log_func(i, batch_time, data_time, losses, accs, mious, fscores, train_lr)
                 # write log and print for training
                 self.write_log(batch_log, 'train', should_print=True)
-
         return losses.avg, accs.avg, mious.avg, fscores.avg
 
     def train(self):
         iter_per_epoch = len(self.run_config.train_loader)
         def train_log_func(epoch_, i, batch_time, data_time, losses, accs, mious, fscores, new_lr):
-            batch_log = 'Train\t[{0}][{1}/{2}]\tlr {lr:.5f}\n' \
-                        'Time\t{batch_time.val:.4f}\t({batch_time.avg:.4f})\n' \
-                        'Data\t{data_time.val:.4f}\t({data_time.avg:.4f})\n' \
-                        'Loss\t{losses.val:.6f}\t({losses.avg:.6f})\n' \
-                        'Acc\t{accs.val:6.4f}\t({accs.avg:6.4f})\n' \
-                        'mIoU\t{miou.val:6.4f}\t({miou.avg:6.4f})\n' \
-                        'F1\t{fscore.val:6.4f}\t({fscore.avg:6.4f})\n'\
-                .format(epoch_+1, i, iter_per_epoch-1, lr=new_lr, batch_time=batch_time, data_time=data_time,
-                    losses=losses, accs=accs, miou=mious, fscore=fscores)
+            epoch_str = '|iter{:03d}-epoch{:03d}-total{:03d}|'.format(i, epoch_, self.run_config.total_epochs)
+            common_log = '[Training the {:}] Left={:} LR={:}'\
+                .format(epoch_str, convert_secs2time(batch_time.average * self.run_config.total_epochs-epoch_, True), new_lr)
+            time_log =  'Time Use : {:}, Data Time : {:}'\
+                .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
+            batch_log = '[{:}] training : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}'\
+                .format(epoch_str, losses.average, accs.average, mious.average, fscores.average)
+            batch_log = common_log+'\n'+time_log+'\n'+batch_log
             return batch_log
 
         for epoch in range(self.start_epoch, self.run_config.total_epochs):
-            logging.info('\n', '-'*30, 'Train epoch: {}'.format(epoch+1), '-'*30, '\n')
-
-            end = time.time()
-            # one epoch training process, rt mean value
-            loss, acc, miou, fscore = self.train_one_epoch(
-                lambda i: self.run_config.adjust_learning_rate(self.optimizer, epoch, i, iter_per_epoch=iter_per_epoch),
+            logging.info('\n'+'-'*30, 'Train epoch: {}'.format(epoch), '-'*30+'\n')
+            # train log have been wrote in train_one_epoch
+            loss, acc, miou, fscore = self.train_one_epoch( epoch,
                 lambda i, batch_time, data_time, losses, accs, mious, fscores, new_lr: train_log_func(
                     epoch, i, batch_time, data_time, losses, accs, mious, fscores, new_lr
                 ))
-            time_per_epoch = time.time() - end
-            seconds_left = int((self.run_config.total_epochs - 1 - epoch) * time_per_epoch)
-            print('Time per epoch: {}, Est. complete in: {}'
-                         .format(str(timedelta(seconds=time_per_epoch)),
-                                 str(timedelta(seconds=seconds_left))))
-            if (epoch + 1) % self.run_config.validation_freq == 0:
-                val_loss, val_acc, val_miou, val_fscore = self.validate(is_test=False, net=self.net, use_train_mode=False,)
+
+            #time_per_epoch = time.time() - end
+            #seconds_left = int((self.run_config.total_epochs - 1 - epoch) * time_per_epoch)
+            #print('Time per epoch: {}, Est. complete in: {}'
+            #             .format(str(timedelta(seconds=time_per_epoch)),
+            #                     str(timedelta(seconds=seconds_left))))
+            # perform validation at the end of each epoch.
+            if epoch % self.run_config.validation_freq == 0:
+                # have write validation_log in self.validate
+                val_loss, val_acc, val_miou, val_fscore = self.validate(epoch, is_test=False, use_train_mode=False)
                 val_monitor_metric = get_monitor_metric(self.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
                 is_best = val_monitor_metric > self.best_monitor
                 self.best_monitor = max(self.best_monitor, val_monitor_metric)
-                # val_log: combination of valid log and training log within a same epoch
-                val_log = 'Valid\t[{0}/{1}]\n' \
-                          'Loss\t{2:.6f}\tAcc\t{3:6.4f}\tmIoU\t{4:6.4f}\tF1\t{5:6.4f}\n'\
-                    .format(epoch+1, self.run_config.total_epochs, val_loss, val_acc, val_miou, val_fscore)
-                val_log += 'Train\t[{0}/{1}]\n' \
-                           'Loss\t{2:.6f}\tAcc\t{3:6.4f}\tmIoU\t{4:6.4f}\tF1\t{5:6.4f}\n'\
-                    .format(epoch+1, self.run_config.total_epochs, loss, acc, miou, fscore)
-
-                # write and print validation log
-                self.write_log(val_log, 'valid', should_print=True)
             else:
                 is_best = False
 
-            if (epoch + 1) % self.run_config.save_ckpt_freq == 0:
-                # pass epoch, checkpoint, and is_best
-                self.save_model(epoch, {
-                    'epoch': epoch,
-                    'best_{}'.format(self.monitor_metric): self.best_monitor,
-                    'optimizer': self.optimizer.state_dict(),
-                    'state_dict': self.net.state_dict(),
-                }, is_best=is_best)
+            if epoch % self.run_config.save_ckpt_freq == 0:
+                # re-train, only have weight_optimizer
+                # checkpoint is None, by default
+                self.save_model(epoch, is_warmup=False, is_best=is_best)
+
