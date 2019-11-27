@@ -23,11 +23,11 @@ from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLab
 #             2. processes related to training phrase
 '''
 class RunConfig:
-    def __init__(self, epochs, warmup_epochs, gpu_ids, workers,
+    def __init__(self, path, epochs, warmup_epochs, gpu_ids, workers,
                  save_path, dataset, nb_classes,
                  train_batch_size, valid_batch_size, test_batch_size, valid_size,
                  ori_size, crop_size,
-                 init_lr, lr_scheduler, lr_scheduler_param,
+                 #init_lr, #scheduler, #scheduler_params,
                  optimizer_config,
                  model_init, init_div_groups, filter_multiplier, block_multiplier, steps, bn_momentum, bn_eps, dropout, nb_layers,
                  validation_freq, train_print_freq, save_ckpt_freq, monitor,
@@ -35,6 +35,8 @@ class RunConfig:
                  use_unbalanced_weights,
                  conv_candidates,
                  **kwargs):
+
+        self.path = path
 
         self.epochs = epochs
         self.warmup_epochs = warmup_epochs
@@ -53,9 +55,9 @@ class RunConfig:
         self.ori_size = ori_size
         self.crop_size = crop_size
 
-        self.init_lr = init_lr
-        self.lr_scheduler = lr_scheduler
-        self.lr_scheduler_param = lr_scheduler_param
+        #self.init_lr = init_lr
+        #self.lr_scheduler = scheduler
+        #self.lr_scheduler_param = scheduler_params
 
         self.optimizer_config = optimizer_config
 
@@ -111,51 +113,50 @@ class RunConfig:
         # 7. criterion params
 
         # todo if it has no_decay_keys
-        if optimizer_config.optimizer_type == 'SGD':
+        if optimizer_config['optimizer_type'] == 'SGD':
             optimizer_params = optimizer_config['optimizer_params']
             momentum, nesterov, weight_decay = optimizer_params.get('momentum'), optimizer_params.get('nesterov'), optimizer_params.get('weight_decay')
             optimizer = torch.optim.SGD(parameters, optimizer_config['init_lr'], momentum=momentum, nesterov=nesterov, weight_decay=weight_decay)
-        elif optimizer_config.optimizer_type == 'RMSprop':
+        elif optimizer_config['optimizer_type'] == 'RMSprop':
             optimizer_params = optimizer_config['optimizer_params']
             momentum, weight_decay = optimizer_params.get('momentum'), optimizer_params.get('weight_decay')
             optimizer = torch.optim.RMSprop(parameters, optimizer_config['init_lr'], momentum=momentum, weight_decay=weight_decay)
-        elif optimizer_config.optimizer_type == 'Adam':
+        elif optimizer_config['optimizer_type'] == 'Adam':
             raise NotImplementedError
             # has issue in Adam optimizer
             #optimizer = torch.optim.Adam(parameters, optimizer_config.init_lr, **optimizer_config.optimizer_params)
         else:
             raise ValueError('invalid optim : {:}'.format(optimizer_config.optimizer_type))
 
-        if optimizer_config.scheduler == 'cosine':
+        if optimizer_config['scheduler'] == 'cosine':
             scheduler_params = optimizer_config['scheduler_params']
             T_max = scheduler_params['T_max'] if scheduler_params.get('T_max') is not None else scheduler_params.get('epochs')
             eta_min = scheduler_params['eta_min']
             #scheduler = CosineAnnealingLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, T_max, scheduler_params.eta_min)
             scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max, eta_min)
-        elif optimizer_config.scheduler == 'multistep':
+        elif optimizer_config['scheduler'] == 'multistep':
             scheduler_params = optimizer_config['scheduler_params']
             milestones, gammas = scheduler_params['milestones'], scheduler_params['gammas']
             #scheduler = MultiStepLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, scheduler_params.milestones, scheduler_params.gammas)
             scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones, gammas)
-        elif optimizer_config.scheduler == 'exponential':
+        elif optimizer_config['scheduler'] == 'exponential':
             scheduler_params = optimizer_config['scheduler_params']
             gamma = scheduler_params['gamma']
             #scheduler = ExponentialLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, scheduler_params.gamma)
             scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma)
-        elif optimizer_config.scheduler == 'linear':
+        elif optimizer_config['scheduler'] == 'linear':
             raise NotImplementedError
         else:
             raise ValueError('invalid scheduler : {:}'.format(optimizer_config.scheduler))
 
-        if optimizer_config.criterion == 'Softmax':
-            criterion = torch.nn.CrossEntropyLoss()
-        elif optimizer_config.criterion == 'SmoothSoftmax':
+        if optimizer_config['criterion'] == 'Softmax':
+            criterion = torch.nn.CrossEntropyLoss().to('cuda:{}'.format(self.gpu_ids))
+        elif optimizer_config['criterion'] == 'SmoothSoftmax':
             criterion_params = optimizer_config['criterion_params']
-            criterion = CrossEntropyLabelSmooth(optimizer_config.class_num, criterion_params.label_smooth)
-        elif optimizer_config.criterion == 'WeightedSoftmax':
-            # TODO: calculate_weights_labels arguments
-            classes_weights = calculate_weights_labels()
-            criterion = torch.nn.CrossEntropyLoss(weight=classes_weights)
+            criterion = CrossEntropyLabelSmooth(optimizer_config.class_num, criterion_params.label_smooth).to('cuda:{}'.format(self.gpu_ids))
+        elif optimizer_config['criterion'] == 'WeightedSoftmax':
+            classes_weights = calculate_weights_labels(self.path, 'WHUBuilding', self.train_loader, self.nb_classes)
+            criterion = torch.nn.CrossEntropyLoss(weight=classes_weights).to('cuda:{}'.format(self.gpu_ids))
         else:
             raise ValueError('invalid criterion : {:}'.format(optimizer_config.criterion))
 
@@ -332,7 +333,9 @@ class RunManager:
             if is_warmup:
                 # in warmup phase, need save
 
-                save_path = os.path.join(self.ckpt_save_path, 'warmup', checkpoint_file_name)
+                save_path = os.path.join(self.ckpt_save_path, 'warmup')
+                os.makedirs(save_path, exist_ok=True)
+                save_path = os.path.join(save_path, checkpoint_file_name)
             else:
                 checkpoint.update({
                     'state_dict': self.model.state_dict(),
@@ -342,7 +345,9 @@ class RunManager:
                     'warmup': is_warmup,
                     'start_epochs': epoch + 1,
                 })
-                save_path = os.path.join(self.ckpt_save_path, 'train_search', checkpoint_file_name)
+                save_path = os.path.join(self.ckpt_save_path, 'train_search')
+                os.makedirs(save_path, exist_ok=True)
+                save_path = os.path.join(save_path, checkpoint_file_name)
         else: # checkpoint is None in only train phase, in self.train()
 
             state_dict = self.model.state_dict()
@@ -356,8 +361,11 @@ class RunManager:
                 'best_monitor': (self.monitor_metric, self.best_monitor),
                 'start_epochs': epoch + 1,
             }
-            save_path = os.path.join(self.ckpt_save_path, 'retrain', checkpoint_file_name)
+            save_path = os.path.join(self.ckpt_save_path, 'retrain')
+            os.makedirs(save_path, exist_ok=True)
+            save_path = os.path.join(save_path, checkpoint_file_name)
         torch.save(checkpoint, save_path)
+
 
     def load_model(self, checkpoint_file):
         # only used in run_manager
@@ -516,7 +524,7 @@ class RunManager:
     def train(self):
         iter_per_epoch = len(self.run_config.train_loader)
         def train_log_func(epoch_, i, batch_time, data_time, losses, accs, mious, fscores, new_lr):
-            epoch_str = '|iter{:03d}-epoch{:03d}-total{:03d}|'.format(i, epoch_, self.run_config.total_epochs)
+            epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i, iter_per_epoch, epoch_, self.run_config.total_epochs)
             common_log = '[Training the {:}] Left={:} LR={:}'\
                 .format(epoch_str, convert_secs2time(batch_time.average * self.run_config.total_epochs-epoch_, True), new_lr)
             time_log =  'Time Use : {:}, Data Time : {:}'\

@@ -167,14 +167,14 @@ if __name__ == '__main__':
     # resume warmup checkpoint file
     if args.resume and os.path.exists(args.resume_file):
         try:
-            arch_search_run_manager.load_model(ckptfile_path=args.resume_file)
+            arch_search_run_manager.load_model(args.resume_file)
         except Exception:
             warmup_path = os.path.join(arch_search_run_manager.run_manager.save_path,
                                        'checkpoint-warmup.pth.tar')
             if os.path.exists(warmup_path):
                 #logging.info('Loading warmup weights')
                 print('='*30+'=>\tLoading warmup weights ...')
-                arch_search_run_manager.load_model(ckptfile_path=warmup_path)
+                arch_search_run_manager.load_model(warmup_path)
             else:
                 #logging.info('Fail to load models')
                 print('='*30+'=>\tFail to load warmup weights ...')
@@ -185,7 +185,7 @@ if __name__ == '__main__':
         #torch.autograd.set_detect_anomaly(True)
         arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
     # joint training
-    #arch_search_run_manager.train(fix_net_weights=args.debug)
+    arch_search_run_manager.train(fix_net_weights=args.debug)
 
 
 

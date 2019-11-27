@@ -28,6 +28,7 @@ def obtain_train_search_args():
     parser.add_argument('--nb_classes', type=int, default=2)
     parser.add_argument('--train_batch_size', type=int, default=1)
     parser.add_argument('--valid_size', type=float, default=None, help='validation set split proportion from training set')
+    parser.add_argument('--valid_batch_size', type=int, default=1)
     parser.add_argument('--test_batch_size', type=int, default=1)
     parser.add_argument('--ori_size', type=int, default=512, help='original image size')
     parser.add_argument('--crop_size', type=int, default=512, help='size of cropped patches')
@@ -50,7 +51,7 @@ def obtain_train_search_args():
 
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
-    parser.add_argument('--train_print_freq', type=int, default=10)
+    parser.add_argument('--train_print_freq', type=int, default=30)
 
     # these two make no sense.
     #parser.add_argument('--print_save_arch_information', default=False, action='store_true')
@@ -93,6 +94,8 @@ def obtain_train_search_args():
     parser.add_argument('--arch_adam_eps', type=float, default=1e-8) # arch_optim_param3
     parser.add_argument('--arch_weight_decay', type=float, default=1e-3)
 
+    parser.add_argument('--tau_min', type=float, default=0.1, help='the min tau for gumbel')
+    parser.add_argument('--tau_max', type=float, default=10, help='the max tau for gumbel')
     # TODO related hardware constraint, None by default
     #parser.add_argument('--target_hardware', type=str, default=None, choices=['mobile', 'cpu', 'gpu8', 'flops', None])
 

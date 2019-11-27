@@ -5,6 +5,7 @@
 '''
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 from collections import OrderedDict
@@ -12,6 +13,9 @@ from models.gumbel_super_network import GumbelAutoDeepLab
 from modules.my_modules import MyNetwork, MyModule
 from modules.operations import ASPP, FactorizedIncrease, ConvLayer, FactorizedReduce, MBInvertedConvLayer, Identity, \
     Zero, SepConv, DilConv
+from run_manager import RunConfig
+from utils.common import get_prev_c
+
 
 __all__ = ['NewGumbelCell', 'NewGumbelAutoDeeplab']
 
@@ -60,7 +64,7 @@ def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_ord
 
 class NewGumbelCell(MyModule):
     def __init__(self, layer, filter_multiplier, block_multiplier, steps,
-                 prev_prev_scale, prev_scale, scale, genotype):
+                 prev_prev_scale, prev_scale, scale, genotype, conv_candidates):
         super(NewGumbelCell, self).__init__()
         index2scale = {
             -2: 1,
@@ -70,6 +74,7 @@ class NewGumbelCell(MyModule):
             2: 16,
             3: 32,
         }
+        self.total_nodes = 2 + steps
         self.layer = layer
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
@@ -78,6 +83,7 @@ class NewGumbelCell(MyModule):
         self.prev_scale = prev_scale
         self.scale = scale
         self.genotype = genotype
+        self.conv_candidates = conv_candidates
 
         self.outc = int(self.filter_multiplier * self.block_multiplier * self.scale / 4)
 
@@ -112,13 +118,13 @@ class NewGumbelCell(MyModule):
             # TODO: issue in scale of prev_prev_c, it is considered as next_scale by default
             self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False)
 
-        self.ops = nn.ModuleList()
+        self.ops = nn.ModuleDict()
 
-        for _, operation_name in self.genotype:
+        for node_str , select_op_index in self.genotype:
             # operation name -> conv_candidates
-            operation = build_candidate_ops([operation_name], self.outc, self.outc,
+            operation = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
                                             stride=1, ops_order='act_weight_bn')
-            self.ops.append(operation)
+            self.ops[node_str] = operation
 
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
 
@@ -126,12 +132,34 @@ class NewGumbelCell(MyModule):
 
         # node_str and operation_name in self.genotype
         # match node_str, perform related operation
+        if s0 is not None:
+            s0 = self.preprocess0(s0)
+        else: assert self.prerpocess0 is None, 'inconsistency in s0 and preprocess0'
+        s1 = self.preprocess1(s1)
+        states = [s0, s1] # including None state
 
+        for i in range(2, self.total_nodes):
+            new_states = []
+            for j in range(i): # all previous node for each node i
+                node_str = '{:}<-{:}'.format(i,j)
+                if node_str in self.genotype[:, 0]:
+                    # the current edge is selected
+                    related_hidden = states[j]
+                    if related_hidden is None:
+                        assert j == 0, 'inconsistency in None hidden and node index'
+                        continue
+                    new_state = self.ops[node_str](related_hidden)
+                    new_states.append(new_state)
+            s = sum(new_states)
+            states.append(s)
 
+        concat_feature = torch.cat(states[-self.steps:], dim=1)
+        concat_feature = self.final_conv1x1(concat_feature)
+        return concat_feature
 
 class NewGumbelAutoDeeplab(MyNetwork):
     def __init__(self, nb_layers, filter_multiplier, block_multiplier, steps, nb_classes,
-                 actual_path, cell_genotypes):
+                 actual_path, cell_genotypes, conv_candidates):
         super(NewGumbelAutoDeeplab, self).__init__()
 
         self.nb_layers = nb_layers
@@ -184,7 +212,7 @@ class NewGumbelAutoDeeplab(MyNetwork):
                 else: prev_prev_scale = None
                 prev_scale = inter_scale[-1]
             self.cells.append(NewGumbelCell(layer, self.filter_multiplier, self.block_multiplier,
-                                            self.steps, prev_prev_scale, prev_scale, next_scale, cell_genotype))
+                                            self.steps, prev_prev_scale, prev_scale, next_scale, cell_genotype, conv_candidates))
             inter_scale.pop(0)
             inter_scale.append(next_scale)
 
@@ -205,6 +233,7 @@ class NewGumbelAutoDeeplab(MyNetwork):
             raise ValueError('invalid last_scale value {}'.format(last_scale))
     def forward(self, x):
 
+        size = x.size()[2:]
         # chain-like structure, normal forward cells and last aspp
         inter_features = []
         x = self.stem0(x)
@@ -213,11 +242,28 @@ class NewGumbelAutoDeeplab(MyNetwork):
         x = self.stem2(x)
         inter_features.append((0, x))
 
+        for layer in range(self.nb_layers):
+            next_scale = self.actual_path[layer]
+            prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
+            _result = self.cells[layer](prev_prev_feature, prev_feature)
+            inter_features.pop(0)
+            inter_features.append((next_scale, _result))
 
-def get_new_model(super_network):
+        _result = self.aspp(inter_features[-1])
+        return F.interpolate(_result, size=size, mode='bilinear', align_corners=True)
 
+def get_new_model(super_network, run_config: RunConfig):
+    nb_layers = run_config.nb_layers
+    filter_multiplier = run_config.filter_multiplier
+    block_multiplier = run_config.block_multiplier
+    steps = run_config.steps
+    nb_classes = run_config.nb_classes
     actual_path, cell_genotypes = super_network.network_cell_arch_decode()
     print('\t=> Construct New Model ... ...')
-    normal_model = NewGumbelAutoDeeplab()
+    normal_model = NewGumbelAutoDeeplab(nb_layers, filter_multiplier, block_multiplier, steps, nb_classes, actual_path, cell_genotypes)
+    print('\t=> New Model Constructed Done ... ... Begin Testing')
 
+    data = torch.zeros(1, 3, 512, 512).to('cuda:{}'.format(run_config.gpu_ids))
+    normal_model(data)
+    print('\t=> Testing Done.')
     return normal_model

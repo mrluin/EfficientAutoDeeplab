@@ -446,9 +446,9 @@ def detect_invalid_index(index, nb_layers):
 def save_configs(run_config, arch_search_config, save_path):
     run_config_path = os.path.join(save_path, 'run.config')
     arch_search_config_path = os.path.join(save_path, 'arch_search.config')
-    print('=' * 30+'Run Configs dumps to {}'.format(run_config_path))
+    print('=' * 30+'\n'+'Run Configs dumps to {}'.format(run_config_path))
     json.dump(run_config, open(run_config_path, 'w'), indent=4)
-    print('=' * 30+'Arch Search Configs dumps to {}'.format(arch_search_config_path))
+    print('=' * 30+'\n'+'Arch Search Configs dumps to {}'.format(arch_search_config_path))
     json.dump(arch_search_config, open(arch_search_config_path, 'w'), indent=4)
 
 

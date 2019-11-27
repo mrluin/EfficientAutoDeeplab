@@ -233,7 +233,7 @@ class GumbelAutoDeepLab(MyNetwork):
 
     def get_flops(self, x):
 
-        # TODO: network flops should be calculated after derived!!! uncompleted!!!
+        # get_flops should performed on super network with actual_path
         actual_path = self.viterbi_decode()
         inter_features = []
         print('actual_path', actual_path)
@@ -270,6 +270,8 @@ class GumbelAutoDeepLab(MyNetwork):
             flop_aspp, output = self.aspp16.get_flops(inter_features[-1][1])
         elif last_scale == 3:
             flop_aspp, output = self.aspp32.get_flops(inter_features[-1][1])
+        else:
+            raise ValueError('invalid last_scale value {}'.format(last_scale))
 
         return flops + flop_stem0 + flop_stem1 + flop_stem2 + flop_aspp, output
 
@@ -342,25 +344,30 @@ class GumbelAutoDeepLab(MyNetwork):
 
     def cell_genotype_decode(self, cell):
         genotypes = []
-        total_nodes = cell.total_nodes
-        edge2index = cell.edge2index
-        weight = cell.cell_arch_parameters
-        ops = cell.ops
-        for i in range(2, total_nodes): # for each node in a cell, excluding the first two nodes.
-            xlist = []
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                branch_index = edge2index[node_str] # edge_index
-                if ops[branch_index] is None:
-                    assert j == 0, 'None operation, wrong edge.'
-                    xlist.append((node_str, None))
-                    continue
-                else:
+        with torch.no_grad():
+            total_nodes = cell.total_nodes
+            edge2index = cell.edge2index
+            weight = cell.cell_arch_parameters
+            ops = cell.ops
+            for i in range(2, total_nodes): # for each node in a cell, excluding the first two nodes.
+                xlist = []
+                for j in range(i):
+                    node_str = '{:}<-{:}'.format(i, j)
+                    branch_index = edge2index[node_str] # edge_index
+                    # pay attention, include None operation.
+                    if ops[branch_index] is None:
+                        assert j == 0, 'None operation, wrong edge.'
+                        #xlist.append((node_str, None)) # excluding None edge.
+                        #continue
+                    #else:
                     mixed_op_weight = weight[branch_index]
-                    select_op_index = mixed_op_weight.argmax().item()
-                    xlist.append((node_str, self.conv_candidates[select_op_index]))
-            genotypes.append(tuple(xlist)) # operation for each node
-        return genotypes
+                    select_op_index = mixed_op_weight.argmax().item() # for each edge, then get the previous two
+                    # max weight for each edge tuple(node_str, weight)
+                    xlist.append((node_str, select_op_index))
+                # get the previous two
+                previous_two = sorted(xlist, key=lambda x: -weight[edge2index[node_str]][x[1]])[:2] # (node_str, select_op_index)
+                genotypes.append(tuple(previous_two)) # (node_str, select_op_index)
+            return genotypes
 
     def network_cell_arch_decode(self):
         print('\t=> Super Network decoding ... ... ')
@@ -379,8 +386,8 @@ class GumbelAutoDeepLab(MyNetwork):
         for layer in range(self.nb_layers):
             cell_index, cell_genotype = cell_genotypes[layer]
             print('layer {} cell_index {} architecture'.format(layer, cell_index))
-            for node_str, arch in cell_genotype:
-                print(node_str, arch)
+            for node_str, select_op_index in cell_genotype:
+                print(node_str, self.conv_candidates[select_op_index])
         print('\t=> Super Network decoding done')
 
         return actual_path, cell_genotypes
