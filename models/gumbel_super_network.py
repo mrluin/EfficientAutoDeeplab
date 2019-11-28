@@ -167,7 +167,7 @@ class GumbelAutoDeepLab(MyNetwork):
                 self.cells += [cell4_1]
                 self.cells += [cell4_2]
 
-        print('\t nb_cells: ',len(self.cells))
+        #print('\t nb_cells: ',len(self.cells))
         scale4_outc = int(self.filter_multiplier * self.block_multiplier * 4 / 4)
         scale8_outc = int(self.filter_multiplier * self.block_multiplier * 8 / 4)
         scale16_outc = int(self.filter_multiplier * self.block_multiplier * 16 / 4)
@@ -355,7 +355,7 @@ class GumbelAutoDeepLab(MyNetwork):
                     node_str = '{:}<-{:}'.format(i, j)
                     branch_index = edge2index[node_str] # edge_index
                     # pay attention, include None operation.
-                    if ops[branch_index] is None:
+                    if ops[node_str] is None:
                         assert j == 0, 'None operation, wrong edge.'
                         #xlist.append((node_str, None)) # excluding None edge.
                         #continue
@@ -366,30 +366,31 @@ class GumbelAutoDeepLab(MyNetwork):
                     xlist.append((node_str, select_op_index))
                 # get the previous two
                 previous_two = sorted(xlist, key=lambda x: -weight[edge2index[node_str]][x[1]])[:2] # (node_str, select_op_index)
-                genotypes.append(tuple(previous_two)) # (node_str, select_op_index)
+                genotypes.append(previous_two) # (node_str, select_op_index)
             return genotypes
 
     def network_cell_arch_decode(self):
-        print('\t=> Super Network decoding ... ... ')
+        #print('\t=> Super Network decoding ... ... ')
         actual_path = self.viterbi_decode()
-        print('acutal_path', actual_path)
+        #print('acutal_path', actual_path)
         cell_genotypes = []
         current_scale = 0
         for layer in range(self.nb_layers):
-            next_scale = actual_path[layer]
+            next_scale = int(actual_path[layer])
             cell_index = get_cell_index(layer, current_scale, next_scale)
             genotypes = self.cell_genotype_decode(self.cells[cell_index])
             cell_genotypes.append((cell_index, genotypes))
             current_scale = next_scale
         assert len(cell_genotypes) == 12, 'invalid length of cell_genotype'
-        print('cell_genotypes')
+        '''
+        #print('cell_genotypes')
         for layer in range(self.nb_layers):
             cell_index, cell_genotype = cell_genotypes[layer]
             print('layer {} cell_index {} architecture'.format(layer, cell_index))
             for node_str, select_op_index in cell_genotype:
                 print(node_str, self.conv_candidates[select_op_index])
         print('\t=> Super Network decoding done')
-
+        '''
         return actual_path, cell_genotypes
 
     '''

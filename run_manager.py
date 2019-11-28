@@ -130,7 +130,7 @@ class RunConfig:
 
         if optimizer_config['scheduler'] == 'cosine':
             scheduler_params = optimizer_config['scheduler_params']
-            T_max = scheduler_params['T_max'] if scheduler_params.get('T_max') is not None else scheduler_params.get('epochs')
+            T_max = scheduler_params['T_max'] if scheduler_params.get('T_max') is not None else optimizer_config.get('epochs')
             eta_min = scheduler_params['eta_min']
             #scheduler = CosineAnnealingLR(optimizer, optimizer_config.warmup, optimizer_config.epochs, T_max, scheduler_params.eta_min)
             scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max, eta_min)
@@ -237,15 +237,16 @@ class RunConfig:
 
 
 class RunManager:
-    def __init__(self, path, super_network, run_config: RunConfig, out_log=True):
+    def __init__(self, path, super_network, logger, run_config: RunConfig, out_log=True):
 
         self.path = path # root path to workspace
-        self.ckpt_save_path = os.path.join(self.path, 'checkpoint')
-        self.log_save_path =  os.path.join(self.path, 'logs')
-        self.prediction_save_path =  os.path.join(self.path, 'predictions')
-        os.makedirs(self.ckpt_save_path, exist_ok=True)
-        os.makedirs(self.log_save_path, exist_ok=True)
-        os.makedirs(self.prediction_save_path, exist_ok=True)
+        self.model_path = logger.model_dir
+        self.log_path = logger.log_dir
+        self.prediction_path = logger.predictions_dir
+
+        #os.makedirs(self.ckpt_save_path, exist_ok=True)
+        #os.makedirs(self.log_save_path, exist_ok=True)
+        #os.makedirs(self.prediction_save_path, exist_ok=True)
 
         self.model = super_network
         self.run_config = run_config
@@ -273,16 +274,16 @@ class RunManager:
 
     ''' save path and log path '''
     @property
-    def get_ckpt_save_path(self):
-        return self.ckpt_save_path
+    def get_model_path(self):
+        return self.model_path
 
     @property
-    def get_log_save_path(self):
-        return self.log_save_path
+    def get_log_path(self):
+        return self.log_path
 
     @property
-    def prediction_path(self):
-        return self.prediction_save_path
+    def get_prediction_path(self):
+        return self.prediction_path
 
     def build_monitor(self, monitor):
         monitor_mode = monitor.split('#')[0]
@@ -515,7 +516,7 @@ class RunManager:
             end = time.time()
 
             # within one epoch, per iteration print train_log
-            if i % self.run_config.train_print_freq or (i+1) == len(self.run_config.train_loader):
+            if (i+1) % self.run_config.train_print_freq or (i+1) == len(self.run_config.train_loader):
                 batch_log = train_log_func(i, batch_time, data_time, losses, accs, mious, fscores, train_lr)
                 # write log and print for training
                 self.write_log(batch_log, 'train', should_print=True)
@@ -524,20 +525,23 @@ class RunManager:
     def train(self):
         iter_per_epoch = len(self.run_config.train_loader)
         def train_log_func(epoch_, i, batch_time, data_time, losses, accs, mious, fscores, new_lr):
-            epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i, iter_per_epoch, epoch_, self.run_config.total_epochs)
-            common_log = '[Training the {:}] Left={:} LR={:}'\
-                .format(epoch_str, convert_secs2time(batch_time.average * self.run_config.total_epochs-epoch_, True), new_lr)
-            time_log =  'Time Use : {:}, Data Time : {:}'\
-                .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
+            time_per_iter = batch_time.average
+            time_left = self.run_config.total_epochs * iter_per_epoch - (epoch_*iter_per_epoch + i+1) *time_per_iter
+            epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch_+1, self.run_config.total_epochs)
+            common_log = '[Training the {:}] Time={:}/iter Left={:} LR={:}'\
+                .format(epoch_str, time_per_iter, time_left, new_lr)
+            #time_log =  'Time Use : {:}, Data Time : {:}'\
+            #    .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
             batch_log = '[{:}] training : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}'\
                 .format(epoch_str, losses.average, accs.average, mious.average, fscores.average)
-            batch_log = common_log+'\n'+time_log+'\n'+batch_log
+            batch_log = common_log+'\n'+batch_log
             return batch_log
 
+        # TODO: in retrain phase, should modify total_epochs
         for epoch in range(self.start_epoch, self.run_config.total_epochs):
-            logging.info('\n'+'-'*30, 'Train epoch: {}'.format(epoch), '-'*30+'\n')
+            logging.info('\n'+'-'*30, 'Train epoch: {}'.format(epoch+1), '-'*30+'\n')
             # train log have been wrote in train_one_epoch
-            loss, acc, miou, fscore = self.train_one_epoch( epoch,
+            loss, acc, miou, fscore = self.train_one_epoch(epoch,
                 lambda i, batch_time, data_time, losses, accs, mious, fscores, new_lr: train_log_func(
                     epoch, i, batch_time, data_time, losses, accs, mious, fscores, new_lr
                 ))
@@ -548,7 +552,7 @@ class RunManager:
             #             .format(str(timedelta(seconds=time_per_epoch)),
             #                     str(timedelta(seconds=seconds_left))))
             # perform validation at the end of each epoch.
-            if epoch % self.run_config.validation_freq == 0:
+            if (epoch+1) % self.run_config.validation_freq == 0 or (epoch+1) == self.run_config.total_epochs:
                 # have write validation_log in self.validate
                 val_loss, val_acc, val_miou, val_fscore = self.validate(epoch, is_test=False, use_train_mode=False)
                 val_monitor_metric = get_monitor_metric(self.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
@@ -557,7 +561,7 @@ class RunManager:
             else:
                 is_best = False
 
-            if epoch % self.run_config.save_ckpt_freq == 0:
+            if (epoch+1) % self.run_config.save_ckpt_freq == 0 or (epoch+1) == self.run_config.total_epochs:
                 # re-train, only have weight_optimizer
                 # checkpoint is None, by default
                 self.save_model(epoch, is_warmup=False, is_best=is_best)

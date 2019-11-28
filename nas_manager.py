@@ -10,6 +10,7 @@ from run_manager import *
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
 from utils.common import get_monitor_metric
+from utils.logger import save_checkpoint, time_string
 from utils.metrics import Evaluator
 from modules.mixed_op import MixedEdge
 from utils.common import count_parameters
@@ -97,9 +98,10 @@ class ArchSearchRunManager:
     def __init__(self,
                  path, super_net,
                  run_config: RunConfig,
-                 arch_search_config: ArchSearchConfig):
+                 arch_search_config: ArchSearchConfig,
+                 logger):
 
-        self.run_manager = RunManager(path, super_net, run_config, out_log=True)
+        self.run_manager = RunManager(path, super_net, logger, run_config, out_log=True)
         self.arch_search_config = arch_search_config
         # init architecture parameters
         self.net.init_arch_params(
@@ -111,6 +113,7 @@ class ArchSearchRunManager:
         self.warmup = True
         self.warmup_epoch = 0
         self.start_epoch = 0  # start_epoch, warmup_epoch, and total_epoch
+        self.logger = logger
 
     @property
     def net(self):
@@ -184,7 +187,8 @@ class ArchSearchRunManager:
 
     def warm_up(self, warmup_epochs):
         if warmup_epochs <=0 :
-            print('\twarmup close')
+            self.logger.log('\twarmup close', mode='warm')
+            #print('\twarmup close')
             return
         # set optimizer and scheduler in warm_up phase
         lr_max = self.arch_search_config.warmup_lr
@@ -201,11 +205,14 @@ class ArchSearchRunManager:
         iter_per_epoch = len(data_loader)
         total_iteration = warmup_epochs * iter_per_epoch
 
-        print('\twarmup begin')
-        for epoch in range(self.warmup_epoch, warmup_epochs):
-            print('\n'+'-'*30, 'Warmup Epoch: {}'.format(epoch), '-'*30+'\n')
+        self.logger.log('\twarmup begin', mode='warm')
 
-            end = time.time()
+        epoch_time = AverageMeter()
+        end_epoch = time.time()
+        for epoch in range(self.warmup_epoch, warmup_epochs):
+            self.logger.log('\n'+'-'*30+'Warmup Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='warm')
+
+
             lr_scheduler_warmup.step(epoch)
             warmup_lr = lr_scheduler_warmup.get_lr()
             self.net.train()
@@ -217,15 +224,24 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
+
+            epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, warmup_epochs)
+            time_left = epoch_time.average * (warmup_epochs - epoch)
+            common_log = '[Warmup the {:}] Left={:} LR={:}'.format(epoch_str, str(timedelta(seconds=time_left)) if epoch!=0 else None, warmup_lr)
+            self.logger.log(common_log, mode='warm')
+            end = time.time()
+
             for i, (datas, targets) in enumerate(data_loader):
+
+                #if i == 5: # used for debug
+                #    break
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
                     targets = targets.to(self.run_manager.device, non_blocking=True)
                 else:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end)
-                if i == 5: # used for debug
-                    break
+
                 logits = self.net.single_path_forward(datas)
                 loss = self.run_manager.criterion(logits, targets)
                 # measure metrics and update
@@ -245,18 +261,24 @@ class ArchSearchRunManager:
 
                 batch_time.update(time.time()-end)
                 end = time.time()
-
-                if i % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
+                if (i+1) % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
+                    '''
                     time_per_iter = batch_time.average
-                    seconds_left = int((total_iteration - epoch*iter_per_epoch-i) * time_per_iter)
-                    epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i, iter_per_epoch, epoch, warmup_epochs)
+                    epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch+1, warmup_epochs)
                     common_log = '[Warmup the {:}] Time={:}/iter Left={:} LR={:}'.format(epoch_str,
                                 str(timedelta(seconds=time_per_iter)), str(timedelta(seconds=seconds_left)), warmup_lr)
                     batch_log = '[{:}] warmup : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}' \
                         .format(epoch_str, losses.average, accs.average, mious.average, fscores.average)
                     batch_log = common_log+'\n'+batch_log
-                    self.run_manager.write_log(batch_log, 'warmup')
+                    '''
+                    Wstr = '|*WARM-UP*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i+1, iter_per_epoch)
+                    Tstr = '|Time     | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
+                    Bstr = '|Base     | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'\
+                        .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                    self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, 'warm')
 
+            epoch_time.update(time.time() - end_epoch)
+            end_epoch = time.time()
 
             '''
             # TODO: wheter perform validation after each epoch in warmup phase ?
@@ -274,7 +296,7 @@ class ArchSearchRunManager:
             self.warmup_epoch = self.warmup_epoch + 1
             self.start_epoch = self.warmup_epoch
             # To save checkpoint in warmup phase at specific frequency.
-            if epoch % self.run_manager.run_config.save_ckpt_freq == 0:
+            if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch+1) == warmup_epochs:
                 state_dict = self.net.state_dict()
                 # rm architecture parameters because, in warm_up phase, arch_parameters are not updated.
                 for key in list(state_dict.keys()):
@@ -287,41 +309,35 @@ class ArchSearchRunManager:
                     'warmup': self.warmup,
                     'start_epochs': epoch+1,
                 }
-                self.run_manager.save_model(epoch, checkpoint, is_warmup=self.warmup, is_best=False)
+                filename = self.logger.path(mode='warm', is_best=False)
+                save_path = save_checkpoint(checkpoint, filename, self.logger, mode='warm')
+                # TODO: save_path used to resume last info
 
     def train(self, fix_net_weights=False):
-
-        # reset train_search_learning_rate, weight_lr, after warm up phase.
-        #for param_group in self.run_manager.optimizer.param_groups:
-        #    param_group['lr'] = self.run_manager.run_config.init_lr
 
         # have config valid_batch_size, and ignored drop_last.
         data_loader = self.run_manager.run_config.train_loader
         iter_per_epoch = len(data_loader)
-        total_iteration = iter_per_epoch * (self.run_manager.run_config.total_epochs - self.start_epoch)
+        total_iteration = iter_per_epoch * self.run_manager.run_config.epochs
 
         if fix_net_weights: # used to debug
             data_loader = [(0, 0)] * iter_per_epoch
             print('Train Phase close for debug')
 
-        '''
-        arch_param_num = len(list(self.net.arch_parameters()))
-        weight_param_num = len(list(self.net.weight_parameters()))
-        # TODO: weight_parameters does not make sense. Only arch_param
-        print('#arch_params: {}\t # weight_params: {}'.format(arch_param_num, weight_param_num))
-        '''
         # arch_parameter update frequency and times in each iteration.
         #update_schedule = self.arch_search_config.get_update_schedule(iter_per_epoch)
 
         # pay attention here, total_epochs include warmup epochs
-        for epoch in range(self.start_epoch, self.run_manager.run_config.total_epochs):
-            print('\n'+'-'*30, 'Train Epoch: {}'.format(epoch+1), '-'*30+'\n')
+        epoch_time = AverageMeter()
+        end_epoch = time.time()
+        for epoch in range(self.run_manager.run_config.epochs):
+            self.logger.log('\n'+'-'*30+'Train Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='search')
 
-            # set learning_rate_scheduler
-            print(self.run_manager.scheduler.T_max)
-            self.run_manager.scheduler.step(epoch-self.start_epoch)
+            self.run_manager.scheduler.step(epoch)
             train_lr = self.run_manager.scheduler.get_lr()
-            self.net.set_tau(self.arch_search_config.tau_max - (self.arch_search_config.tau_max - self.arch_search_config.tau_min) * (epoch-self.start_epoch) / (self.run_manager.run_config.epochs-1))
+            arch_lr = self.arch_optimizer.param_groups[0]['lr']
+            self.net.set_tau(self.arch_search_config.tau_max - (self.arch_search_config.tau_max - self.arch_search_config.tau_min) * (epoch) / (self.run_manager.run_config.epochs))
+            tau = self.net.get_tau()
             batch_time = AverageMeter()
             data_time = AverageMeter()
             losses = AverageMeter()
@@ -337,8 +353,15 @@ class ArchSearchRunManager:
 
             self.net.train()
 
+            epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_manager.run_config.epochs)
+            time_left = epoch_time.average * (self.run_manager.run_config.epochs - epoch)
+            common_log = '[*Train-Search* the {:}] Left={:} WLR={:} ALR={:} tau={:}'\
+                .format(epoch_str, str(timedelta(seconds=time_left)) if epoch == 0 else None, train_lr, train_lr, arch_lr, tau)
+            self.logger.log(common_log, 'search')
+
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
+                #if i == 29: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -364,26 +387,20 @@ class ArchSearchRunManager:
                     loss.backward()
                     self.run_manager.optimizer.step()
 
-                    end_valid = time.time() # control valid data time
-                    # skip is performed in proxy
-                    #if epoch > 0:
-
+                    #end_valid = time.time()
                     valid_datas, valid_targets = self.run_manager.run_config.valid_next_batch
                     if torch.cuda.is_available():
                         valid_datas = valid_datas.to(self.run_manager.device, non_blocking=True)
                         valid_targets = valid_targets.to(self.run_manager.device, non_blocking=True)
                     else:
                         raise ValueError('do not support cpu version')
-                    # get arch_param_lr
-                    for param_group in self.arch_optimizer.param_groups:
-                        arch_lr = param_group['lr']
-                        break
-                    valid_data_time.update(time.time()-end_valid)
+
+                    #valid_data_time.update(time.time()-end_valid)
                     logits = self.net.single_path_forward(valid_datas)
                     loss = self.run_manager.criterion(logits, valid_targets)
                     # metrics and update
                     valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
-                    valid_evaluator.add_batch(targets, logits)
+                    valid_evaluator.add_batch(valid_targets, logits)
                     acc = valid_evaluator.Pixel_Accuracy()
                     miou = valid_evaluator.Mean_Intersection_over_Union()
                     fscore = valid_evaluator.Fx_Score()
@@ -399,12 +416,13 @@ class ArchSearchRunManager:
                     # batch_time of one iter of train and valid.
                     batch_time.update(time.time() - end)
                     end = time.time()
-                    if i % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
+                    if (i+1) % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
+                        '''
                         time_per_iter = batch_time.average
-                        seconds_left = int((total_iteration - epoch * iter_per_epoch - i) * time_per_iter)
-                        epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i, iter_per_epoch, epoch, self.run_manager.run_config.total_epochs)
+                        seconds_left = (total_iteration - (epoch * iter_per_epoch + i + 1) * time_per_iter)
+                        epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch+1, self.run_manager.run_config.epochs)
                         common_log = '[Train Search the {:}] Time={:}/iter Left={:} WLR={:} ALR={:} tau={:}'.format(epoch_str,
-                            str(timedelta(time_per_iter)), str(timedelta(seconds_left)), train_lr, arch_lr, self.net.get_tau())
+                            str(timedelta(seconds=time_per_iter)), str(timedelta(seconds=seconds_left)), train_lr, arch_lr, self.net.get_tau())
                         #time_log = 'Time Duration : {:}, Train Data Time : {:} Valid Data Time' \
                         #    .format(convert_secs2time(batch_time.average, True),
                         #            convert_secs2time(data_time.average, True))
@@ -413,14 +431,39 @@ class ArchSearchRunManager:
                             .format(epoch_str, losses.average, accs.average, mious.average, fscores.average,
                                     epoch_str, valid_losses.average, valid_accs.average, valid_mious.average, valid_fscores.average)
                         batch_log = common_log+'\n'+batch_log
-                        self.run_manager.write_log(batch_log, 'train_search', should_print=True)
-            epoch_str = '{:03d}/{:03d}'.format(epoch-self.start_epoch, self.run_manager.run_config.epochs)
+                        '''
+                        Wstr = '|*Search*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i + 1, iter_per_epoch)
+                        Tstr = '|Time    | {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
+                        Bstr = '|Base    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                        Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
+                        self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
+            # update epoch_time
+            epoch_time.update(time.time()-end_epoch)
+            end_epoch = time.time()
+
+            epoch_str = '{:03d}/{:03d}'.format(epoch+1, self.run_manager.run_config.epochs)
             log = '[{:}] train :: loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n' \
                   '[{:}] valid :: loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n'.format(
                 epoch_str, losses.average, accs.average, mious.average, fscores.average,
                 epoch_str, valid_losses.average, valid_accs.average, valid_mious.average, valid_fscores.average
             )
-            self.run_manager.write_log(log, 'train_search', should_print=True)
+            self.logger.log(log, mode='search')
+
+            self.logger.log('<<<---------->>> Super Network decoding ... ... ', mode='search')
+            actual_path, cell_genotypes = self.net.network_cell_arch_decode()
+            new_genotypes = []
+            for _index, genotype in cell_genotypes:
+                xlist = []
+                for edge_genotype in genotype:
+                    for (node_str, select_index) in edge_genotype:
+                        xlist.append((node_str, self.run_manager.run_config.conv_candidates[select_index]))
+                new_genotypes.append((_index, xlist))
+            log_str = 'The {:} decode network:\n' \
+                      'actual_path = {:}\n' \
+                      'genotype:'.format(epoch_str, actual_path)
+            for _index, genotype in new_genotypes:
+                log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
+            self.logger.log(log_str, mode='search')
 
             # TODO： perform save the best network ckpt
             # 1. save network_arch_parameters and cell_arch_parameters
@@ -437,78 +480,19 @@ class ArchSearchRunManager:
             self.run_manager.best_monitor = max(self.run_manager.best_monitor, val_monitor_metric)
             # 1. if is_best : save_current_ckpt
             # 2. if can be divided : save_current_ckpt
-            if is_best:
-                self.run_manager.save_model(epoch, {
-                    'arch_optimizer': self.arch_optimizer.state_dict(),
-                }, is_best=True, checkpoint_file_name=None)
-            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
-                self.run_manager.save_model(epoch, {
-                    'arch_optimizer': self.arch_optimizer.state_dict(),
-                }, is_best=False, checkpoint_file_name=None)
-        '''
-        # TODO: get rid of
-        # TODO, do not make sense, it should save the best network info rather than network after training.
-        # after training phase
-        if self.run_manager.run_config.save_normal_net_after_training:
 
-            # get cell_arch_info and network_arch_info from genotype decode and viterbi_decode
-            # construct cells and network, according to cell_arch_info and network_arch_info
-            # obtain the whole network
-            actual_path, network_space, gene = self.net.network_arch_cell_arch_decode()
-            #print('\t-> actual_path:', actual_path)
-            #print('\t-> network_space:', network_space)
-            #print('\t-> gene:\n', gene)
-
-
-            # obtain new_auto_deeplab
-            normal_net = NewNetwork(actual_path, gene, self.run_manager.run_config.filter_multiplier,
-                                    self.run_manager.run_config.block_multiplier, self.run_manager.run_config.steps,
-                                    self.run_manager.run_config.nb_layers, self.run_manager.run_config.nb_classes,
-                                    init_channels=128, conv_candidates=self.run_manager.run_config.conv_candidates)
-            # TODO: device
-            print('\t-> normal_net construct completely!')
-            print('\t-> Total training params: {:.2f}'.format(count_parameters(normal_net) / 1e6))
-            # TODO: fix issues in convert_to_normal_net()
-            # TODO: network level need split cells
-            # obtain normal cells
-            # normal_net = self.net.cpu().convert_to_normal_net()
-
-            # directory of network configs
-            os.makedirs(os.path.join(self.run_manager.path, 'learned_net'), exist_ok=True)
-
-            # TODO: get_network_config,
-            # layer scale cell, selected edge_index, chosen operation.
-
-            # TODO: test config_log
-            '''
-        '''
-            def get_network_config(normal_net, cell_arch, actual_path):
-                nb_layers = 12
-                config = {
-                    'stem0': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
-                    'stem1': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
-                    'stem2': 'conv{}x{}_s{}_bn_relu'.format(normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.kernel_size, normal_net.stem0.conv.stride),
+            #self.run_manager.save_model(epoch, {
+            #    'arch_optimizer': self.arch_optimizer.state_dict(),
+            #}, is_best=True, checkpoint_file_name=None)
+            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch + 1) == self.run_manager.run_config.total_epochs or is_best:
+                checkpoint = {
+                    'state_dict'      : self.net.state_dict(),
+                    'weight_optimizer': self.run_manager.optimizer.state_dict(),
+                    'weight_scheduler': self.run_manager.scheduler.state_dict(),
+                    'arch_optimizer'  : self.arch_optimizer.state_dict(),
+                    'best_monitor'    : (self.run_manager.monitor_metric, self.run_manager.best_monitor),
+                    'warmup'          : False,
+                    'start_epochs'    : epoch + 1,
                 }
-                for i in range(nb_layers):
-                    next_scale = actual_path[i]
-                    config['layer {}, scale {} cell'.format(i+1, next_scale)] = normal_net.cells[i].module_str()
-                config['Aspp'] = normal_net.aspp
-
-            config = get_network_config(normal_net, gene, actual_path)
-            print('\t-> network config construct done')
-            # done
-            json.dump(config, open(os.path.join(self.run_manager.path, 'learned_net/net_config.txt'), 'w'), indent=4)
-            # done
-            json.dump(
-                self.run_manager.run_config.config,
-                open(os.path.join(self.run_manager.path, 'learned_net/run_config.txt'), 'w'),
-                indent=4
-            )
-            # done
-            torch.save(
-                {'state_dict': normal_net.state_dict(),
-                 'dataset': self.run_manager.run_config.dataset},
-                os.path.join(self.run_manager.path, 'learned_net/init')
-            )
-            print('\t-> normal_network_config, run_config, ckpt saved done!')
-            '''
+                filename = self.logger.path(mode='search', is_best=is_best)
+                save_checkpoint(checkpoint, filename, self.logger, mode='search')
