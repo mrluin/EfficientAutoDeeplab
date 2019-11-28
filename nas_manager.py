@@ -277,6 +277,7 @@ class ArchSearchRunManager:
                         .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                     self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, 'warm')
 
+            torch.cuda.empty_cache()
             epoch_time.update(time.time() - end_epoch)
             end_epoch = time.time()
 
@@ -437,6 +438,8 @@ class ArchSearchRunManager:
                         Bstr = '|Base    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
+
+            torch.cuda.empty_cache()
             # update epoch_time
             epoch_time.update(time.time()-end_epoch)
             end_epoch = time.time()

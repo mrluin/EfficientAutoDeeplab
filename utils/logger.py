@@ -35,8 +35,7 @@ def prepare_logger(args):
     return logger
 
 class Logger(object):
-    def __init__(self, path, seed, create_model_dir=True, create_prediction_dir=True,
-                 use_tf=False):
+    def __init__(self, path, seed, create_model_dir=True, create_prediction_dir=True,):
 
         self.seed = int(seed)
         self.log_dir = Path(path) / 'logs'
@@ -48,16 +47,7 @@ class Logger(object):
             self.model_dir.mkdir(parents=True, exist_ok=True)
         if create_prediction_dir:
             self.predictions_dir.mkdir(parents=True, exist_ok=True)
-        '''
-        # TODO: to use visdom rather than tensorboardX
-        self.use_tf = bool(use_tf)
-        self.tensorboard_dir = self.log_dir / ('tensorboard-{:}'.format(time.strftime('%d-%h', time.gmtime(time.time()))))
-        if self.use_tf:
-            self.tensorboard_dir.mkdir(mode=0o775, parents=True, exist_ok=True)
-            self.writer = tf.summary.FileWriter(str(self.tensorboard_dir))
-        else:
-            self.writer = None
-            '''
+
         self.logger_path_info = self.log_dir / 'seed-{:}-T-{:}-info.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
         self.logger_path_warm = self.log_dir / 'seed-{:}-T-{:}-warm.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
         self.logger_path_search = self.log_dir / 'seed-{:}-T-{:}-search.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
@@ -136,76 +126,6 @@ class Logger(object):
             else:
                 ValueError('do not support mode {:}'.format(mode))
 
-    '''
-        # visualization method change into visom
-    def scalar_summary(self, tags, values, step):
-        if not self.use_tf:
-            warnings.warn('do set use-tensorflow installed but call scalar_summary')
-        else:
-            assert isinstance(tags, list) == isinstance(values, list), 'Type: {:} vs. {:}'.format(type(tags), type(values))
-            if not isinstance(tags, list):
-                tags, values = [tags], [values]
-            for tag, value in zip(tags, values):
-                summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
-                self.writer.add_summary(summary, step)
-                self.wirter.flush()
-
-    def image_summary(self, tag, images, step):
-        import scipy
-        if not self.use_tf:
-            warnings.warn('do set use-tensorflow installed but call scalar_summary')
-            return
-
-        img_summaries = []
-        for i, img in enumerate(images):
-            # write the image to a string
-            try:
-                s = StringIO()
-            except:
-                s = BytesIO()
-            scipy.misc.toimage(img).save(s, format='png')
-
-            # create an image object
-            img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
-                                       height=img.shape[0],
-                                       width=img.shape[1])
-            # create a summary value
-            img_summaries.append(tf.Summary.Value(tag='{}/{}'.format(tag, i), image=img_sum))
-
-        # create and write summary
-        summary = tf.Summary(value=img_summaries)
-        self.writer.add_summary(summary, step)
-        self.writer.flush()
-
-    def histo_summary(self, tag, values, step, bins=1000):
-        if not self.use_tf: raise ValueError('do not have tensorflow')
-        import tensorflow as tf
-
-        # create a histogram using numpy
-        counts, bin_edges = np.histogram(values, bins=bins)
-
-        # fill the fields of the histogram proto
-        hist = tf.HistogramProto()
-        hist.min = float(np.min(values))
-        hist.max = float(np.max(values))
-        hist.num = int(np.prod(values.shape))
-        hist.sum = float(np.sum(values))
-        hist.sum_squares = float(np.sum(values**2))
-
-        # drop the start of the first bin
-        bin_edges = bin_edges[1:]
-
-        # add bin edges and counts
-        for edge in bin_edges:
-            hist.bucket_limit.append(edge)
-        for c in counts:
-            hist.bucket.append(c)
-
-        # create and write summary
-        summary = tf.Summary(value=[tf.Summary.Value(tag=tag, histo=hist)])
-        self.writer.add_summary(summary, step)
-        self.writer.flush()
-    '''
 def save_checkpoint(state, filename, logger, mode):
     if osp.isfile(filename):
         if hasattr(logger, 'log'):
