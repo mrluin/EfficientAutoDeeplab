@@ -31,7 +31,7 @@ class RunConfig:
                  optimizer_config,
                  model_init, init_div_groups, filter_multiplier, block_multiplier, steps, bn_momentum, bn_eps, dropout, nb_layers,
                  validation_freq, train_print_freq, save_ckpt_freq, monitor,
-                 print_arch_param_step_freq,
+                 #print_arch_param_step_freq,
                  use_unbalanced_weights,
                  conv_candidates,
                  **kwargs):
@@ -78,7 +78,7 @@ class RunConfig:
         self.train_print_freq = train_print_freq
         self.save_ckpt_freq = save_ckpt_freq
         self.monitor = monitor
-        self.print_arch_param_step_freq = print_arch_param_step_freq
+        #self.print_arch_param_step_freq = print_arch_param_step_freq
 
         self.use_unbalanced_weights = use_unbalanced_weights
 

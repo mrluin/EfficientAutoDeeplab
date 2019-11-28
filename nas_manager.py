@@ -356,7 +356,7 @@ class ArchSearchRunManager:
             epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_manager.run_config.epochs)
             time_left = epoch_time.average * (self.run_manager.run_config.epochs - epoch)
             common_log = '[*Train-Search* the {:}] Left={:} WLR={:} ALR={:} tau={:}'\
-                .format(epoch_str, str(timedelta(seconds=time_left)) if epoch == 0 else None, train_lr, train_lr, arch_lr, tau)
+                .format(epoch_str, str(timedelta(seconds=time_left)) if epoch == 0 else None, train_lr, arch_lr, tau)
             self.logger.log(common_log, 'search')
 
             end = time.time()

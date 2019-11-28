@@ -25,9 +25,9 @@ def main(args):
     torch.set_num_threads(args.workers)
     set_manual_seed(args.random_seed)
     #print_experiment_environment()
-    os.makedirs(args.path, exist_ok=True)
     EXP_time = time_for_file()
     args.path = os.path.join(args.path, args.exp_name, EXP_time)
+    os.makedirs(args.path, exist_ok=True)
     create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
 
     # weight optimizer config, related to network_weight_optimizer, scheduler, and criterion
@@ -108,7 +108,7 @@ def main(args):
     logger = prepare_logger(args)
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
-        args.nb_classes, args.nb_layers, args.conv_candidates
+        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates
     )
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger)
     display_all_families_information(args, arch_search_run_manager, logger)

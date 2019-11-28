@@ -22,7 +22,7 @@ __all__ = ['GumbelAutoDeepLab']
 class GumbelAutoDeepLab(MyNetwork):
     def __init__(self,
                  filter_multiplier, block_multiplier, steps, nb_classes,
-                 nb_layers, conv_candidates):
+                 nb_layers, bn_momentum, bn_eps, conv_candidates):
         super(GumbelAutoDeepLab, self).__init__()
 
         self.filter_multiplier = filter_multiplier
@@ -189,7 +189,7 @@ class GumbelAutoDeepLab(MyNetwork):
         #self.nb_edges =
         #self.edge2index =
 
-
+        self.set_bn_param(bn_momentum, bn_eps)
     def init_arch_params(self, init_type='normal', init_ratio=1e-3):
         for param in self.arch_parameters():
             if init_type == 'normal':
