@@ -438,16 +438,13 @@ class ArchSearchRunManager:
             # 1. if is_best : save_current_ckpt
             # 2. if can be divided : save_current_ckpt
             if is_best:
-                
+                self.run_manager.save_model(epoch, {
+                    'arch_optimizer': self.arch_optimizer.state_dict(),
+                }, is_best=True, checkpoint_file_name=None)
             if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0:
                 self.run_manager.save_model(epoch, {
-                    'warmup': False,
-                    'epoch': epoch,
-                    'weight_optimizer': self.run_manager.optimizer.state_dict(),
                     'arch_optimizer': self.arch_optimizer.state_dict(),
-                    'state_dict': self.net.state_dict(),
                 }, is_best=False, checkpoint_file_name=None)
-
         '''
         # TODO: get rid of
         # TODO, do not make sense, it should save the best network info rather than network after training.

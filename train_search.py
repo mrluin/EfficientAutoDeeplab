@@ -138,11 +138,13 @@ def main(args):
     print('num_classes       :: {:}'.format(args.nb_classes))
     print('model_init        :: {:}'.format(args.model_init))
 
+    '''
     # get_model_infos, perform inference
     # TODO: modify the way of forward into gdas_forward
     flop, param = get_model_infos(super_network, [1, 3, 512, 512])
     print('||||||| FLOPS & PARAMS |||||||')
     print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+    '''
 
     # TODO: perform resume automatically
     # warm up phase
