@@ -22,6 +22,7 @@ class visdomer(object):
         for element in init_elements:
             self.windows[element] = self.visdom_init(element)
 
+
     def get_viz(self):
         return self.viz
 
@@ -59,7 +60,7 @@ class visdomer(object):
 
     def visdom_update(self, epoch, update_element, update_value):
         if update_element in ['loss', 'accuracy', 'miou', 'f1socre']:
-            assert update_value is list and len(update_value) == 2
+            assert update_value is list and len(update_value) == 2, 'update_value should be list and with lenght 2'
             train_log = update_value[0]
             valid_log = update_value[1]
             window = self.get_window(update_element)

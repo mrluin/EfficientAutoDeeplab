@@ -16,6 +16,7 @@ from utils.common import set_manual_seed, print_experiment_environment, time_for
 from utils.common import save_configs
 from utils.flop_benchmark import get_model_infos
 from utils.logger import prepare_logger, display_all_families_information
+from utils.visdom_utils import visdomer
 def main(args):
 
     assert torch.cuda.is_available(), 'CUDA is not available'
@@ -106,11 +107,15 @@ def main(args):
     # perform config save, for run_configs and arch_search_configs
     save_configs(run_config.config, arch_search_config.config, args.path)
     logger = prepare_logger(args)
+    if args.open_vis:
+        vis = visdomer(args.port, args.server, 'GumbelAutoDeeplab', ['train','search'],
+                       ['loss','accuracy','miou','f1score'], init_params=None)
+    else: vis = None
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates
     )
-    arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger)
+    arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, arch_search_run_manager, logger)
 
     '''
@@ -120,7 +125,7 @@ def main(args):
     print('||||||| FLOPS & PARAMS |||||||')
     print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
     '''
-
+    torch.autograd.set_detect_anomaly(True)
     # TODO: perform resume automatically, according to last_info
     # warm up phase
     if arch_search_run_manager.warmup:

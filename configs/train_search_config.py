@@ -1,5 +1,7 @@
 import argparse
 def obtain_train_search_args():
+    DEFAULT_PORT =  8097
+    DEFAULT_HOSTNAME = 'http://localhost'
     '''
     add_argument(--metavar, type, default, action, choices, help)
     :return: args for train_search phrase
@@ -13,6 +15,10 @@ def obtain_train_search_args():
     parser.add_argument('--random_seed', type=int, default=1)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
+    # for visdom
+    parser.add_argument('--open_vis', default=False, action='store_true')
+    parser.add_argument('--port', type=int, default=DEFAULT_PORT)
+    parser.add_argument('--server', type=str, default=DEFAULT_HOSTNAME)
 
     # not used
     parser.add_argument('--resume', default=False, action='store_true', help='checkpoint file if needed')

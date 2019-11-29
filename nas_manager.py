@@ -99,7 +99,7 @@ class ArchSearchRunManager:
                  path, super_net,
                  run_config: RunConfig,
                  arch_search_config: ArchSearchConfig,
-                 logger):
+                 logger, vis=None):
 
         self.run_manager = RunManager(path, super_net, logger, run_config, out_log=True)
         self.arch_search_config = arch_search_config
@@ -114,7 +114,7 @@ class ArchSearchRunManager:
         self.warmup_epoch = 0
         self.start_epoch = 0  # start_epoch, warmup_epoch, and total_epoch
         self.logger = logger
-
+        self.vis = vis
     @property
     def net(self):
         return self.run_manager.model
@@ -262,15 +262,6 @@ class ArchSearchRunManager:
                 batch_time.update(time.time()-end)
                 end = time.time()
                 if (i+1) % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
-                    '''
-                    time_per_iter = batch_time.average
-                    epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch+1, warmup_epochs)
-                    common_log = '[Warmup the {:}] Time={:}/iter Left={:} LR={:}'.format(epoch_str,
-                                str(timedelta(seconds=time_per_iter)), str(timedelta(seconds=seconds_left)), warmup_lr)
-                    batch_log = '[{:}] warmup : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}' \
-                        .format(epoch_str, losses.average, accs.average, mious.average, fscores.average)
-                    batch_log = common_log+'\n'+batch_log
-                    '''
                     Wstr = '|*WARM-UP*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i+1, iter_per_epoch)
                     Tstr = '|Time     | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
                     Bstr = '|Base     | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'\
@@ -346,7 +337,7 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
-            valid_data_time = AverageMeter()
+            #valid_data_time = AverageMeter()
             valid_losses = AverageMeter()
             valid_accs = AverageMeter()
             valid_mious = AverageMeter()
@@ -357,12 +348,12 @@ class ArchSearchRunManager:
             epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_manager.run_config.epochs)
             time_left = epoch_time.average * (self.run_manager.run_config.epochs - epoch)
             common_log = '[*Train-Search* the {:}] Left={:} WLR={:} ALR={:} tau={:}'\
-                .format(epoch_str, str(timedelta(seconds=time_left)) if epoch == 0 else None, train_lr, arch_lr, tau)
+                .format(epoch_str, str(timedelta(seconds=time_left)) if epoch != 0 else None, train_lr, arch_lr, tau)
             self.logger.log(common_log, 'search')
 
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
-                #if i == 29: break
+                #if i == 59: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -386,6 +377,8 @@ class ArchSearchRunManager:
 
                     self.net.zero_grad()
                     loss.backward()
+
+
                     self.run_manager.optimizer.step()
 
                     #end_valid = time.time()
@@ -412,32 +405,27 @@ class ArchSearchRunManager:
 
                     self.net.zero_grad()
                     loss.backward()
+                    #if (i+1) % 5 == 0:
+                    #    print('network_arch_parameters.grad in search phase:\n',
+                    #                         self.net.network_arch_parameters.grad)
                     self.arch_optimizer.step()
 
                     # batch_time of one iter of train and valid.
                     batch_time.update(time.time() - end)
                     end = time.time()
                     if (i+1) % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
-                        '''
-                        time_per_iter = batch_time.average
-                        seconds_left = (total_iteration - (epoch * iter_per_epoch + i + 1) * time_per_iter)
-                        epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch+1, self.run_manager.run_config.epochs)
-                        common_log = '[Train Search the {:}] Time={:}/iter Left={:} WLR={:} ALR={:} tau={:}'.format(epoch_str,
-                            str(timedelta(seconds=time_per_iter)), str(timedelta(seconds=seconds_left)), train_lr, arch_lr, self.net.get_tau())
-                        #time_log = 'Time Duration : {:}, Train Data Time : {:} Valid Data Time' \
-                        #    .format(convert_secs2time(batch_time.average, True),
-                        #            convert_secs2time(data_time.average, True))
-                        batch_log = '[{:}] train_search : train : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n' \
-                                    '[{:}] train_search : valid : loss={:.2f} accuracy={:.2f} miou={:.2f} f1socre={:.2f}' \
-                            .format(epoch_str, losses.average, accs.average, mious.average, fscores.average,
-                                    epoch_str, valid_losses.average, valid_accs.average, valid_mious.average, valid_fscores.average)
-                        batch_log = common_log+'\n'+batch_log
-                        '''
                         Wstr = '|*Search*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i + 1, iter_per_epoch)
                         Tstr = '|Time    | {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
                         Bstr = '|Base    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
+
+            # update visdom
+            if self.vis is not None:
+                self.vis.visdom_update(epoch, 'loss', [losses.average, valid_losses.average])
+                self.vis.visdom_update(epoch, 'accuracy', [accs.average, valid_accs.average])
+                self.vis.visdom_update(epoch, 'miou', [mious.average, valid_mious.average])
+                self.vis.visdom_update(epoch, 'f1score', [fscores.average, valid_fscores.average])
 
             torch.cuda.empty_cache()
             # update epoch_time

@@ -283,9 +283,5 @@ class GumbelCell(MyModule):
         raise NotImplementedError
 
 
-
-    def get_flops(self):
-        raise NotImplementedError
-
     def module_str(self):
         raise NotImplementedError

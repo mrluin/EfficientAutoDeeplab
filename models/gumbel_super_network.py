@@ -276,33 +276,64 @@ class GumbelAutoDeepLab(MyNetwork):
         return flops + flop_stem0 + flop_stem1 + flop_stem2 + flop_aspp, output
 
     def viterbi_decode(self):
+        # network_space           [12, 4, 3], 0-layer is output of stem2 0: ↗, 1: →, 2: ↘
+        # network_arch_parameters [12, 4, 3], 0-layer is true 0-layer,   0: ↘, 1: →, 2: ↗, w.r.t. each node in fabric
+        with torch.no_grad():
+            network_space = torch.zeros_like(self.network_arch_parameters)
+            #network_space = np.zeros((self.nb_layers, 4, 3))
+            #aspp_space = self.aspp_arch_parameters
+            for layer in range(self.nb_layers):
+                if layer == 0:
+                    #network_space[layer][0][1] = F.softmax(self.network_arch_parameters[layer][0][1], -1) * (1/3)
+                    #network_space[layer][0][2] = F.softmax(self.network_arch_parameters[layer][1][0], -1) * (1/3)
+                    #network_space[layer][0][1:] = F.softmax(network_space[layer][0][1:], -1) * (2/3)
 
-        network_space = torch.zeros_like(self.network_arch_parameters)
-        for layer in range(self.nb_layers):
-            if layer == 0:
-                network_space[layer][0][1] = F.softmax(self.network_arch_parameters.data[layer][0][1], -1) * (1/3)
-                network_space[layer][1][0] = F.softmax(self.network_arch_parameters.data[layer][1][0], -1) * (1/3)
-            elif layer == 1:
-                network_space[layer][0][1:] = F.softmax(self.network_arch_parameters.data[layer][0][1:], -1) * (2/3)
-                network_space[layer][1][:2] = F.softmax(self.network_arch_parameters.data[layer][1][:2], -1) * (2/3)
-                network_space[layer][2][0] = F.softmax(self.network_arch_parameters.data[layer][2][0], -1) * (1/3)
-            elif layer == 2:
-                network_space[layer][0][1:] = F.softmax(self.network_arch_parameters.data[layer][0][1:], -1) * (2/3)
-                network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
-                network_space[layer][2][:2] = F.softmax(self.network_arch_parameters[layer][2][:2], -1) * (2/3)
-                network_space[layer][3][0] = F.softmax(self.network_arch_parameters[layer][3][0], -1) * (1/3)
-            else:
-                network_space[layer][0][1:] = F.softmax(self.network_arch_parameters.data[layer][0][1:], -1) * (2 / 3)
-                network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
-                network_space[layer][2] = F.softmax(self.network_arch_parameters[layer][2], -1)
-                network_space[layer][3][:2] = F.softmax(self.network_arch_parameters[layer][3][:2], -1) * (2 / 3)
+                    network_space[layer][0][1] = F.softmax(self.network_arch_parameters[layer][0][1], -1) * (1/3)
+                    network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][1][0], -1) * (1/3)
+                elif layer == 1:
+                    #network_space[layer][0][1], network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][0][2], network_space[layer][1][1] = F.softmax(self.network_arch_parameters[layer][1][:2], -1) * (2/3)
+                    #network_space[layer][1][2] = F.softmax(self.network_arch_parameters[layer][2][0], -1) * (1/3)
+                    #network_space[layer][0][1:] = F.softmax(network_space[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][1] = F.softmax(network_space[layer][1], -1)
 
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2/3)
+                    network_space[layer][1][:2] = F.softmax(self.network_arch_parameters[layer][1][:2], -1) * (2/3)
+                    network_space[layer][2][0] = F.softmax(self.network_arch_parameters[layer][2][0], -1) * (1/3)
+                elif layer == 2:
+                    #network_space[layer][0][1], network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][0][2], network_space[layer][1][1], network_space[layer][2][0] = F.softmax(self.network_arch_parameters[layer][1], -1)
+                    #network_space[layer][1][2], network_space[layer][2][1] = F.softmax(self.network_arch_parameters[layer][2][:2], -1) * (2/3)
+                    #network_space[layer][2][2] = F.softmax(self.network_arch_parameters[layer][3][0], -1) * (1/3)
+                    #network_space[layer][0][1:] = F.softmax(network_space[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][1] = F.softmax(network_space[layer][1], -1)
+                    #network_space[layer][2] = F.softmax(network_space[layer][2], -1)
 
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2/3)
+                    network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
+                    network_space[layer][2][:2] = F.softmax(self.network_arch_parameters[layer][2][:2], -1) * (2/3)
+                    network_space[layer][3][0] = F.softmax(self.network_arch_parameters[layer][3][0], -1) * (1/3)
+                else:
+                    #network_space[layer][0][1], network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][0][2], network_space[layer][1][1], network_space[layer][2][0] = F.softmax(self.network_arch_parameters[layer][1], -1)
+                    #network_space[layer][1][2], network_space[layer][2][1], network_space[layer][3][0] = F.softmax(self.network_arch_parameters[layer][2], -1)
+                    #network_space[layer][2][2], network_space[layer][3][1] = F.softmax(self.network_arch_parameters[layer][3][:2], -1) * (2/3)
+                    #network_space[layer][0][1:] = F.softmax(network_space[layer][0][1:], -1) * (2/3)
+                    #network_space[layer][1] = F.softmax(network_space[layer][1], -1)
+                    #network_space[layer][2] = F.softmax(network_space[layer][2], -1)
+                    #network_space[layer][3][:2] = F.softmax(network_space[layer][3][:2], -1) * (2/3)
+
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2 / 3)
+                    network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
+                    network_space[layer][2] = F.softmax(self.network_arch_parameters[layer][2], -1)
+                    network_space[layer][3][:2] = F.softmax(self.network_arch_parameters[layer][3][:2], -1) * (2 / 3)
+
+        print('viterbi_phase:\n', network_space)
         prob_space = np.zeros(network_space.shape[:2]) # [12, 4]
         path_space = np.zeros(network_space.shape[:2]).astype('int8') # [12, 4]
 
         # prob_space [layer, sample] from layer sample to next layer
-        #   0 1 2 3 4 5 6 7 8 9network_space from here
+        #   0 1 2 3 4 5 6 7 8 9 network_space from here
         # 0 1 2 3 4 5 6 7 8 9
         # . . . . . . . . . . . . . .
         #   . . . . . . . . . . . . .
@@ -325,15 +356,16 @@ class GumbelAutoDeepLab(MyNetwork):
                             continue
                         else:
                             # 1-rate: path
-                            rate2index = {0:2, 1:1, 2: 0}
+                            rate2index = {0:2, 1:1, 2:0}
                             local_prob.append(
                                 prob_space[layer-1][sample+1-rate] * \
                                 network_space[layer][sample][rate2index[rate]]
                             )
                     prob_space[layer][sample] = np.max(local_prob, axis=0)
                     rate = np.argmax(local_prob, axis=0)
-                    path = 1 - rate if sample != 3 else -rate
-                    path_space[layer][sample] = path
+                    path = 1 - rate if sample != 3 else -rate # rate 0 ↗, 1 →, 2 ↘
+                    path_space[layer][sample] = path          # path 1 ↗，0 →， -1 ↘ sample == 3, -1, -2
+
         output_sample = np.argmax(prob_space[-1, :], axis=-1)
         actual_path = np.zeros(12).astype('uint8')
         actual_path[-1] = output_sample
@@ -436,7 +468,7 @@ class GumbelAutoDeepLab(MyNetwork):
         # 4. forward for each cell √
         # 5. re-order cells, have been re-ordered √
 
-        def _single_path_gdas_weightsum(current_scale, next_scale, cell_index, _index, _hardwts, prev_prev_feature, prev_feature):
+        def _single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, index, hardwts, prev_prev_feature, prev_feature):
 
             # active path output, ignore the outputs of the other two (at most).
             state = self.cell_gdas_forward(cell_index, prev_prev_feature, prev_feature)
@@ -449,8 +481,8 @@ class GumbelAutoDeepLab(MyNetwork):
                 inter_result = [state, None, None]
             else: raise ValueError('invalid scale relation between current_scale {:} and next_scale {:}'.format(current_scale, next_scale))
             #print(_index)
-            assert inter_result[_index] is not None, 'Error in _single_path_gdas_weightsum'
-            return sum(state * _hardwts[_i] if _i == _index else _hardwts[_i] for _i, state in enumerate(inter_result))
+            assert inter_result[index[layer][next_scale]] is not None, 'Error in _single_path_gdas_weightsum'
+            return sum(state * hardwts[layer][next_scale][_i] if _i == index[layer][next_scale] else hardwts[layer][next_scale][_i] for _i, state in enumerate(inter_result))
 
         hardwts, index = self.get_network_arch_hardwts()
 
@@ -483,6 +515,7 @@ class GumbelAutoDeepLab(MyNetwork):
         # todo, in the forward phrase, should perform sample_single_path, not viterbi_decode
         # it should be consistent with 'index'
         single_path = self.sample_single_path(self.nb_layers, aspp_index, index) # record next_scale from output of stem2
+        #print('| sampled single_path in forward pass', single_path)
         # forward according to single_path
         size = x.size()[-2:]
         inter_features = []
@@ -494,17 +527,20 @@ class GumbelAutoDeepLab(MyNetwork):
         inter_features.append((0, x))
 
         # TODO: prev_prev_scale is considered the same as the next_scale, which is inconsistent with the origin implementation of AutoDeeplab.
+
+        # TODO: have issue in forward pass, network_arch_parameters are not updated in each epoch.
+
         current_scale = 0
         for layer in range(self.nb_layers): # single_path loop layer-index w.r.t. output of stem2
             next_scale = int(single_path[layer])
             prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
             cell_index = get_cell_index(layer, current_scale, next_scale)
             # pay attention:: index from layer-1 (w.r.t. output of stem2 is layer-0)
-            _index = index[layer][next_scale]
-            _weight = hardwts[layer][next_scale]
+            #_index = index[layer][next_scale]
+            #_weight = hardwts[layer][next_scale]
             # need prev_prev_feature, prev_features, weight, index, active
             #print('_single_path_foward layer{} scale{} cell_index{}'.format(layer+1, next_scale, cell_index))
-            state = _single_path_gdas_weightsum(current_scale, next_scale, cell_index, _index, _weight, prev_prev_feature, prev_feature)
+            state = _single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, index, hardwts, prev_prev_feature, prev_feature)
             current_scale = next_scale
             inter_features.pop(0)
             inter_features.append((next_scale, state))
@@ -720,88 +756,104 @@ class GumbelAutoDeepLab(MyNetwork):
             logits = torch.zeros_like(self.network_arch_parameters)
             probs = torch.zeros_like(self.network_arch_parameters)
             #index = torch.zeros(self.nb_layers, 4, 1)# initialized -1
-            with torch.no_grad(): # to avoid the indice operation over probs cause in-place modification error.
-                for layer in range(self.nb_layers):
-                    if layer == 0: # scale 0 and scale 1
-                        scale = 0
-                        logits[layer][scale][1] = \
-                        (self.network_arch_parameters[layer][scale][1].log_softmax(dim=-1) * (1/3) + gumbels[layer][scale][1]) / self.tau
-                        probs[layer][scale][1] = F.softmax(logits[layer][scale][1], dim=-1) * (1/3)
-                        # probs over only one value is one, the other two are zeros
-                        # index[layer][scale][0] = probs[layer][scale][1].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale][0] = \
-                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        # probs over only one value is one, the other two are zeros
-                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    elif layer == 1: # scale 0, scale 1, and scale 2
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale][:2] = \
-                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale][0] = \
-                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    elif layer == 2: # scale 0, scale 1, scale 2, and scale 3
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale] = \
-                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1) + gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale][:2] = \
-                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
-                        scale = 3
-                        logits[layer][scale][0] = \
-                        (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3)+gumbels[layer][scale][0]) / self.tau
-                        probs[layer][scale][0] = F.softmax(logits[layer][scale][0], dim=-1) * (1/3)
-                        # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
-                    else: # 0, 1, 2, 3
-                        scale = 0
-                        logits[layer][scale][1:] = \
-                        (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][1:]) / self.tau
-                        probs[layer][scale][1:] = F.softmax(logits[layer][scale][1:], dim=-1) * (2/3)
-                        # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
-                        scale = 1
-                        logits[layer][scale] = \
-                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 2
-                        logits[layer][scale] = \
-                        (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
-                        probs[layer][scale] = F.softmax(logits[layer][scale], dim=-1)
-                        # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
-                        scale = 3
-                        logits[layer][scale][:2] = \
-                        (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
-                        probs[layer][scale][:2] = F.softmax(logits[layer][scale][:2], dim=-1) * (2/3)
-                        # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+            #with torch.no_grad(): # to avoid the indice operation over probs cause in-place modification error.
+            #print(self.network_arch_parameters.requires_grad)
+            for layer in range(self.nb_layers):
+                if layer == 0: # scale 0 and scale 1
+                    scale = 0
+                    logits[layer][scale][1] = \
+                    (self.network_arch_parameters[layer][scale][1].log_softmax(dim=-1) * (1/3) + gumbels[layer][scale][1]) / self.tau
+                    probs[layer][scale][1] = F.softmax(logits.clone()[layer][scale][1], dim=-1) * (1/3)
+                    #probs[layer][scale][1] = logits[layer][scale][1].softmax(dim=-1) * (1 / 3)
+                    # probs over only one value is one, the other two are zeros
+                    # index[layer][scale][0] = probs[layer][scale][1].max(-1, keepdim=True)[1]
+                    scale = 1
+                    logits[layer][scale][0] = \
+                    (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
+                    probs[layer][scale][0] = F.softmax(logits.clone()[layer][scale][0], dim=-1) * (1/3)
+                    #probs[layer][scale][0] = logits[layer][scale][0].softmax(dim=-1) * (1/3)
+                    # probs over only one value is one, the other two are zeros
+                    # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                elif layer == 1: # scale 0, scale 1, and scale 2
+                    scale = 0
+                    logits[layer][scale][1:] = \
+                    (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
+                    probs[layer][scale][1:] = F.softmax(logits.clone()[layer][scale][1:], dim=-1) * (2/3)
+                    #probs[layer][scale][1:] = logits[layer][scale][1:].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                    scale = 1
+                    logits[layer][scale][:2] = \
+                    (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][:2]) / self.tau
+                    probs[layer][scale][:2] = F.softmax(logits.clone()[layer][scale][:2], dim=-1) * (2/3)
+                    #probs[layer][scale][:2] = logits[layer][scale][:2].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+                    scale = 2
+                    logits[layer][scale][0] = \
+                    (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3) + gumbels[layer][scale][0]) / self.tau
+                    probs[layer][scale][0] = F.softmax(logits.clone()[layer][scale][0], dim=-1) * (1/3)
+                    #probs[layer][scale][0] = logits[layer][scale][0].softmax(dim=-1) * (1/3)
+                    # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                elif layer == 2: # scale 0, scale 1, scale 2, and scale 3
+                    scale = 0
+                    logits[layer][scale][1:] = \
+                    (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3) + gumbels[layer][scale][1:]) / self.tau
+                    probs[layer][scale][1:] = F.softmax(logits.clone()[layer][scale][1:], dim=-1) * (2/3)
+                    #probs[layer][scale][1:] = logits.data[layer][scale][1:].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                    scale = 1
+                    logits[layer][scale] = \
+                    (self.network_arch_parameters[layer][scale].log_softmax(dim=-1) + gumbels[layer][scale]) / self.tau
+                    probs[layer][scale] = F.softmax(logits.clone()[layer][scale], dim=-1)
+                    #probs[layer][scale] = logits[layer][scale].softmax(dim=-1)
+                    # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                    scale = 2
+                    logits[layer][scale][:2] = \
+                    (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
+                    probs[layer][scale][:2] = F.softmax(logits.clone()[layer][scale][:2], dim=-1) * (2/3)
+                    #probs[layer][scale][:2] = logits[layer][scale][:2].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
+                    scale = 3
+                    logits[layer][scale][0] = \
+                    (self.network_arch_parameters[layer][scale][0].log_softmax(dim=-1)*(1/3)+gumbels[layer][scale][0]) / self.tau
+                    probs[layer][scale][0] = F.softmax(logits.clone()[layer][scale][0], dim=-1) * (1/3)
+                    #probs[layer][scale][0] = logits[layer][scale][0].softmax(dim=-1) * (1/3)
+                    # index[layer][scale][0] = probs[layer][scale][0].max(-1, keepdim=True)[1]
+                else: # 0, 1, 2, 3
+                    scale = 0
+                    logits[layer][scale][1:] = \
+                    (self.network_arch_parameters[layer][scale][1:].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][1:]) / self.tau
+                    probs[layer][scale][1:] = F.softmax(logits.clone()[layer][scale][1:], dim=-1) * (2/3)
+                    #probs[layer][scale][1:] = logits[layer][scale][1:].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][1:] = probs[layer][scale][1:].max(-1, keepdim=True)[1]
+                    scale = 1
+                    logits[layer][scale] = \
+                    (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
+                    probs[layer][scale] = F.softmax(logits.clone()[layer][scale], dim=-1,)
+                    #probs[layer][scale] = logits[layer][scale].softmax(dim=-1)
+                    # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                    scale = 2
+                    logits[layer][scale] = \
+                    (self.network_arch_parameters[layer][scale].log_softmax(dim=-1)+gumbels[layer][scale]) / self.tau
+                    probs[layer][scale] = F.softmax(logits.clone()[layer][scale], dim=-1)
+                    #probs[layer][scale] = logits[layer][scale].softmax(dim=-1)
+                    # index[layer][scale] = probs[layer][scale].max(-1, keepdim=True)[1]
+                    scale = 3
+                    logits[layer][scale][:2] = \
+                    (self.network_arch_parameters[layer][scale][:2].log_softmax(dim=-1)*(2/3)+gumbels[layer][scale][:2]) / self.tau
+                    probs[layer][scale][:2] = F.softmax(logits.clone()[layer][scale][:2], dim=-1) * (2/3)
+                    #probs[layer][scale][:2] = logits[layer][scale][:2].softmax(dim=-1) * (2/3)
+                    # index[layer][scale][:2] = probs[layer][scale][:2].max(-1, keepdim=True)[1]
 
-
-                # prob of invalid choice is zero, index can always not select invalid choices.
-                index = probs.max(-1, keepdim=True)[1] # [12, 4, 1]
-                # according to index, one_hot
-                one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0) # shape as [12, 4, 3]
-                hardwts = one_h - probs.detach() + probs
-                if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
-                    continue
-                else: break
+            #print('probs', probs.requires_grad)
+            #print('logits', logits.requires_grad)
+            # prob of invalid choice is zero, index can always not select invalid choices.
+            index = probs.max(-1, keepdim=True)[1] # [12, 4, 1]
+            # according to index, one_hot
+            one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0) # shape as [12, 4, 3]
+            hardwts = one_h - probs.detach() + probs
+            #print('hardwts', hardwts.requires_grad)
+            if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
+                continue
+            else: break
 
         return hardwts, index
