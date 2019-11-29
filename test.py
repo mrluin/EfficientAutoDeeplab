@@ -1,14 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-
-
-
-
-
-
+'''
 torch.autograd.set_detect_anomaly(True)
 arch_parameters = torch.randn((2, 3), requires_grad=True)
 gumbels = -torch.empty_like(arch_parameters).exponential_().log()
@@ -38,7 +31,15 @@ result.backward()
 
 print(hardwts.grad)
 print(arch_parameters.grad)
+'''
 
+actual_path = [1,2,3,4,5,6,7,788]
+aa = [(1,2), [(3,4)]]
+
+file = open('./test.log', 'w')
+for i in range(10):
+    file.write(str(aa))
+    file.flush()
 
 
 

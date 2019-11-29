@@ -9,11 +9,11 @@ import importlib, warnings
 import os, sys, time, numpy as np
 from io import BytesIO as BIO
 from shutil import copyfile
-
-import visdom
 from copy import deepcopy
 import PIL
 import torch
+from nas_manager import ArchSearchRunManager
+from run_manager import RunManager
 
 def prepare_logger(args):
     args = deepcopy(args)
@@ -55,6 +55,7 @@ class Logger(object):
         self.logger_path_valid = self.log_dir / 'seed-{:}-T-{:}-valid.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
         self.logger_path_test = self.log_dir / 'seed-{:}-T-{:}-test.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
 
+        # when re-open, rewrite the log file, otherwise append.
         self.logger_file_info = open(self.logger_path_info, 'w')
         self.logger_file_warm = open(self.logger_path_warm, 'w')
         self.logger_file_search = open(self.logger_path_search, 'w')
@@ -67,12 +68,13 @@ class Logger(object):
         return ('{name}(dir={log_dir}), (ckpt_dir={model_dir}), (prediction_dir={predictions_dir})'.format(name=self.__class__.__name__, **self.__dict__))
 
 
-
     def path(self, mode, is_best=False):
-        valids = ('warm', 'search', 'retrain')
+        # for save model, in warm_up phase, search phase, and retrain phase.
+        valids = ('warm', 'search', 'retrain', 'arch')
         if   mode == 'warm'   : return self.model_dir / 'seed-{:}-warm.pth'.format(self.seed)
         elif mode == 'search' : return self.model_dir / 'seed-{:}-search.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-search-best.pth'.format(self.seed)
-        elif mode == 'retrain': return self.model_dir / 'seed-{:}-retrain.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-retrain.pth'.format(self.seed)
+        elif mode == 'retrain': return self.model_dir / 'seed-{:}-retrain.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-retrain-best.pth'.format(self.seed)
+        elif mode == 'arch'   : return self.model_dir / 'seed-{:}-arch.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-arch-best.pth'.format(self.seed)
         else: raise TypeError('Unknow mode = {:}, valid modes = {:}'.format(mode, valids))
 
     def extract_log(self, mode):
@@ -88,6 +90,8 @@ class Logger(object):
             return self.logger_file_test
         elif mode == 'info':
             return self.logger_file_info
+        elif mode == 'arch':
+            raise NotImplementedError
         else:
             raise NotImplementedError
 
@@ -146,25 +150,48 @@ def copy_checkpoint(src, dst, logger, mode):
     copyfile(src, dst)
     if hasattr(logger, 'log'): logger.log('copy the file from {:} into {:}'.format(src, dst), mode)
 
-def display_all_families_information(args, nas_manager, logger):
-    log_str = '==================== {:10s} ====================\n'.format(nas_manager.run_manager.run_config.dataset)
-    log_str +='Train Loader :: Len={:} batch_size={:}\n'.format(len(nas_manager.run_manager.run_config.train_loader), nas_manager.run_manager.run_config.train_loader.batch_size)
-    log_str +='Valid Loader :: Len={:} batch_size={:}\n'.format(len(nas_manager.run_manager.run_config.valid_loader), nas_manager.run_manager.run_config.valid_loader.batch_size)
-    log_str +='Test  Loader :: Len={:} batch_size={:}\n'.format(len(nas_manager.run_manager.run_config.test_loader), nas_manager.run_manager.run_config.test_loader.batch_size)
-    log_str +='==================== OPTIMIZERS ====================\n'
-    log_str +='weight_optimizer :: {:}\n'.format(nas_manager.run_manager.optimizer)
-    log_str +='arch_optimizer   :: {:}\n'.format(nas_manager.arch_optimizer)
-    log_str +='weight_scheduler :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
-    log_str +='criterion       :: {:}\n'.format(nas_manager.run_manager.criterion)
-    log_str +='==================== SearchSpace ====================\n'
-    log_str += str(args.conv_candidates) + '\n'
-    log_str +='==================== SuperNetwork Config ====================\n'
-    log_str +='filter_multiplier :: {:}\n'.format(args.filter_multiplier)
-    log_str +='block_multiplier  :: {:}\n'.format(args.block_multiplier)
-    log_str +='steps             :: {:}\n'.format(args.steps)
-    log_str +='num_layers        :: {:}\n'.format(args.nb_layers)
-    log_str +='num_classes       :: {:}\n'.format(args.nb_classes)
-    log_str +='model_init        :: {:}\n'.format(args.model_init)
+def display_all_families_information(args, manager, logger):
+    log_str = ''
+    if isinstance(manager, ArchSearchRunManager):
+        log_str += '==================== {:10s} ====================\n'.format(manager.run_manager.run_config.dataset)
+        log_str += 'Train Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.train_loader), manager.run_manager.run_config.train_loader.batch_size)
+        log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.valid_loader), manager.run_manager.run_config.valid_loader.batch_size)
+        log_str += 'Test  Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.test_loader), manager.run_manager.run_config.test_loader.batch_size)
+        log_str += '==================== OPTIMIZERS ====================\n'
+        log_str += 'weight_optimizer :: {:}\n'.format(manager.run_manager.optimizer)
+        log_str += 'arch_optimizer   :: {:}\n'.format(manager.arch_optimizer)
+        log_str += 'weight_scheduler :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
+        log_str += 'criterion       :: {:}\n'.format(manager.run_manager.criterion)
+        log_str += '==================== SearchSpace ====================\n'
+        log_str += str(args.conv_candidates) + '\n'
+        log_str += '==================== SuperNetwork Config ====================\n'
+        log_str += 'filter_multiplier :: {:}\n'.format(args.filter_multiplier)
+        log_str += 'block_multiplier  :: {:}\n'.format(args.block_multiplier)
+        log_str += 'steps             :: {:}\n'.format(args.steps)
+        log_str += 'num_layers        :: {:}\n'.format(args.nb_layers)
+        log_str += 'num_classes       :: {:}\n'.format(args.nb_classes)
+        log_str += 'model_init        :: {:}\n'.format(args.model_init)
+    elif isinstance(manager, RunManager):
+        log_str = '==================== {:10s} ====================\n'.format(manager.run_config.dataset)
+        log_str += 'Train Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.train_loader), manager.run_config.train_loader.batch_size)
+        log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.valid_loader), manager.run_config.valid_loader.batch_size)
+        log_str += 'Test  Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.test_loader), manager.run_config.test_loader.batch_size)
+        log_str += '==================== OPTIMIZERS ====================\n'
+        log_str += 'weight_optimizer :: {:}\n'.format(manager.optimizer)
+        #log_str += 'arch_optimizer   :: {:}\n'.format(manager.arch_optimizer)
+        log_str += 'weight_scheduler :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
+        log_str += 'criterion       :: {:}\n'.format(manager.criterion)
+        log_str += '==================== SearchSpace ====================\n'
+        log_str += str(args.conv_candidates) + '\n'
+        log_str += '==================== SuperNetwork Config ====================\n'
+        log_str += 'filter_multiplier :: {:}\n'.format(args.filter_multiplier)
+        log_str += 'block_multiplier  :: {:}\n'.format(args.block_multiplier)
+        log_str += 'steps             :: {:}\n'.format(args.steps)
+        log_str += 'num_layers        :: {:}\n'.format(args.nb_layers)
+        log_str += 'num_classes       :: {:}\n'.format(args.nb_classes)
+        log_str += 'model_init        :: {:}\n'.format(args.model_init)
+    else: TypeError('invalid manager type {:}'.format(type(manager)))
+
     logger.log(log_str, mode='info')
 
 def time_string():

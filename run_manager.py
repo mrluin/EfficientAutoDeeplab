@@ -12,6 +12,7 @@ from utils.common import set_manual_seed
 from utils.common import get_monitor_metric
 from utils.common import AverageMeter, convert_secs2time
 from utils.common import count_parameters
+from utils.logger import time_string, save_checkpoint
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
 from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
@@ -34,7 +35,10 @@ class RunConfig:
                  #print_arch_param_step_freq,
                  use_unbalanced_weights,
                  conv_candidates,
+                 actual_path = None, cell_genotypes= None,
                  **kwargs):
+
+        # actual_path and cell_genotypes are used in retrain-phase
 
         self.path = path
 
@@ -84,6 +88,9 @@ class RunConfig:
 
         self.conv_candidates = conv_candidates
 
+        self.actual_path = actual_path
+        self.cell_genotypes = cell_genotypes
+
         self._data_provider = None
         self._train_iter, self._valid_iter, self._test_iter = None, None, None
     @property
@@ -100,6 +107,7 @@ class RunConfig:
 
     def copy(self):
         return RunConfig(**self.config)
+
     ''' get weight_optimizer, scheduler, and training criterion '''
     def get_optim_scheduler_criterion(self, parameters, optimizer_config):
 
@@ -237,7 +245,7 @@ class RunConfig:
 
 
 class RunManager:
-    def __init__(self, path, super_network, logger, run_config: RunConfig, out_log=True):
+    def __init__(self, path, super_network, logger, run_config: RunConfig, vis=None, out_log=True):
 
         self.path = path # root path to workspace
         self.model_path = logger.model_dir
@@ -249,8 +257,11 @@ class RunManager:
         #os.makedirs(self.prediction_save_path, exist_ok=True)
 
         self.model = super_network
+        self.logger = logger
         self.run_config = run_config
         self.out_log = out_log
+        self.vis = vis
+
 
         self.best_monitor = self.build_monitor(self.run_config.monitor)
         self.start_epoch = 0
@@ -294,6 +305,7 @@ class RunManager:
 
     ''' net info '''
     def net_flops(self):
+        # TODO: get rid of, have using hook function to replace.
         # TODO: get flops of specific architecture, related to architecture parameter
 
         data_shape = [1] + list(self.run_config.data_provider.data_shape)
@@ -305,68 +317,6 @@ class RunManager:
         with torch.no_grad():
             flop, _ = net.get_flops(input_var)
         return flop
-
-    ''' save and load models '''
-    def save_model(self, epoch, checkpoint=None, is_warmup=False, is_best=False, checkpoint_file_name=None):
-
-        # what need to save
-        # 1. network state_dict                       √
-        # 2. weight_optimizer state_dict              √
-        # 3. arch_optimizer state_dict                √ √
-        # 4. weight_scheduler state_dict              √
-        # 5. arch_scheduler state_dict if is not None √ √
-        # 6. epochs, or start_epochs                  √
-        # 7. warmup or not                            √
-        # 8. best_monitor and best_value              √
-        # 9. the best one, and per frequency one      √
-
-        # need modifications
-        if checkpoint_file_name is None:
-            if is_warmup:
-                checkpoint_file_name = 'checkpoint-warmup.pth.tar'
-            else:
-                if is_best: checkpoint_file_name = 'checkpoint-best.pth.tar'
-                else: checkpoint_file_name = 'checkpoint.pth.tar'
-
-        if checkpoint is not None:
-            # not None, used in nas_manager, when warmup, train search.
-            # can offer warmup, arch_optimizer information
-            if is_warmup:
-                # in warmup phase, need save
-
-                save_path = os.path.join(self.ckpt_save_path, 'warmup')
-                os.makedirs(save_path, exist_ok=True)
-                save_path = os.path.join(save_path, checkpoint_file_name)
-            else:
-                checkpoint.update({
-                    'state_dict': self.model.state_dict(),
-                    'weight_optimizer': self.optimizer.state_dict(),
-                    'weight_scheduler': self.scheduler.state_dict(),
-                    'best_monitor': (self.monitor_metric, self.best_monitor),
-                    'warmup': is_warmup,
-                    'start_epochs': epoch + 1,
-                })
-                save_path = os.path.join(self.ckpt_save_path, 'train_search')
-                os.makedirs(save_path, exist_ok=True)
-                save_path = os.path.join(save_path, checkpoint_file_name)
-        else: # checkpoint is None in only train phase, in self.train()
-
-            state_dict = self.model.state_dict()
-            #for key in list(state_dict.keys()):
-            #    if 'cell_arch_parameters' in key or 'network_arch_parameters' in key or 'aspp_arch_parameters' in key:
-            #        state_dict.pop(key)
-            checkpoint = {
-                'state_dict': state_dict,
-                'weight_optimizer': self.optimizer.state_dict(),
-                'weight_scheduler': self.scheduler.state_dict(),
-                'best_monitor': (self.monitor_metric, self.best_monitor),
-                'start_epochs': epoch + 1,
-            }
-            save_path = os.path.join(self.ckpt_save_path, 'retrain')
-            os.makedirs(save_path, exist_ok=True)
-            save_path = os.path.join(save_path, checkpoint_file_name)
-        torch.save(checkpoint, save_path)
-
 
     def load_model(self, checkpoint_file):
         # only used in run_manager
@@ -396,33 +346,23 @@ class RunManager:
 
         print('=' * 30 + '=>\tLoaded Checkpoint {}'.format(checkpoint_file))
 
-    def write_log(self, log_str, prefix, should_print=True):
-        # needs three types logs,
-        # 1. train_search_log
-        # 2. validation_log
-        # 3. testing_log
-        # 4. arch_log, records arch_information
-        # 5. retrain log
-        assert prefix in ['train_search', 'validation', 'testing', 'arch', 'train', 'warmup']
-        with open(os.path.join(self.log_save_path, prefix + '.txt'), 'a') as fout:
-            fout.write('=' * 10 + '\n')
-            fout.write(log_str + '\n')
-            fout.flush()
-        if should_print:
-            print(log_str)
-
     def validate(self, epoch, is_test=False, use_train_mode=False):
-        #
-        # TODO: test and validate should both use the derived model.
-        #
         # 1. super network viterbi_decodde, get actual_path
         # 2. cells genotype decode, which are on the actual_path in the super network
         # 3. according to actual_path and cells genotypes, construct the best network.
         # 4. use the best network, to perform test phrase.
 
-        if is_test: data_loader = self.run_config.test_loader
-        else: data_loader = self.run_config.valid_loader
+        if is_test:
+            data_loader = self.run_config.test_loader
+            epoch_str = None
+            self.logger.log('\n' + '-' * 30 + 'TESTING PHASE' + '-' * 30 + '\n', mode='valid')
+        else:
+            data_loader = self.run_config.valid_loader
+            epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_config.epochs)
+            self.logger.log('\n' + '-' * 30 + 'Valid epoch: {:}'.format(epoch_str) + '-' * 30 + '\n', mode='valid')
+
         model = self.model
+
         if use_train_mode: model.train()
         else: model.eval()
 
@@ -432,8 +372,8 @@ class RunManager:
         mious = AverageMeter()
         fscores = AverageMeter()
         accs = AverageMeter()
-
         end0 = time.time()
+
         with torch.no_grad():
             for i, (datas, targets) in enumerate(data_loader):
                 if torch.cuda.is_available():
@@ -442,11 +382,8 @@ class RunManager:
                 else:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end0)
-
-
-                # TODO: need modification, in validation and testing phrase, forward in derived model.
-                logits = model.single_path_forward(datas)
-
+                # validation of the derived model. normal forward pass.
+                logits = self.model(datas)
                 loss = self.criterion(logits, targets)
                 # metrics calculate and update
                 evaluator = Evaluator(self.run_config.nb_classes)
@@ -462,18 +399,21 @@ class RunManager:
                 batch_time.update(time.time() - end0)
                 end0 = time.time()
 
-            if is_test: prefix = 'testing'
-            else: prefix = 'validation'
-            use_time = 'Time Duration: {:}, Data Time : {:}'\
-                .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
-            epoch_str = '{:03d}-{:03d}'.format(epoch, self.run_config.total_epochs)
-            log_str = '[{:}] {:} : loss={:.2f}, accuracy={:.2f}, miou={:.2f}, f1score={:.2f}'\
-                .format(epoch_str, prefix, losses.average, accs.average, mious.average, fscores.average)
-            log_str = use_time+'\n'+log_str
-            self.write_log(log_str, prefix)
+            if is_test:
+                Wstr = '|*TEST*|' + time_string()
+                Tstr = '|Time  | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
+                Bstr = '|Base  | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                self.logger.log(Wstr + '\n' + Tstr + '\n' + Bstr, 'test')
+            else:
+                Wstr = '|*VALID*|' + time_string() + epoch_str
+                Tstr = '|Time   | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
+                Bstr = '|Base   | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(
+                    loss=losses, acc=accs, miou=mious, fscore=fscores)
+                self.logger.log(Wstr + '\n' + Tstr + '\n' + Bstr, 'valid')
+
         return losses.avg, accs.avg, mious.avg, fscores.avg
 
-    def train_one_epoch(self, epoch, train_log_func):
+    def train_one_epoch(self, epoch):
 
         batch_time = AverageMeter()
         data_time = AverageMeter()
@@ -481,11 +421,9 @@ class RunManager:
         accs = AverageMeter()
         mious = AverageMeter()
         fscores = AverageMeter()
-
         self.model.train()
-
-        self.scheduler.step(epoch)
-        train_lr = self.scheduler.get_lr()
+        epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_config.epochs)
+        iter_per_epoch = len(self.run_config.train_loader)
         end = time.time()
         for i, (datas, targets) in enumerate(self.run_config.train_loader):
             if torch.cuda.is_available():
@@ -494,7 +432,6 @@ class RunManager:
             else:
                 raise ValueError('do not support cpu version')
             data_time.update(time.time()-end)
-
             logits = self.model(datas)
             loss = self.criterion(logits, targets)
             evaluator = Evaluator(self.run_config.nb_classes)
@@ -514,55 +451,52 @@ class RunManager:
             # elapsed time
             batch_time.update(time.time()-end)
             end = time.time()
-
             # within one epoch, per iteration print train_log
             if (i+1) % self.run_config.train_print_freq or (i+1) == len(self.run_config.train_loader):
-                batch_log = train_log_func(i, batch_time, data_time, losses, accs, mious, fscores, train_lr)
-                # write log and print for training
-                self.write_log(batch_log, 'train', should_print=True)
+                Wstr = '|*TRAIN*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i + 1, iter_per_epoch)
+                Tstr = '|Time   | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
+                Bstr = '|Base   | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]' \
+                    .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, mode='retrain')
         return losses.avg, accs.avg, mious.avg, fscores.avg
 
     def train(self):
-        iter_per_epoch = len(self.run_config.train_loader)
-        def train_log_func(epoch_, i, batch_time, data_time, losses, accs, mious, fscores, new_lr):
-            time_per_iter = batch_time.average
-            time_left = self.run_config.total_epochs * iter_per_epoch - (epoch_*iter_per_epoch + i+1) *time_per_iter
-            epoch_str = '|iter[{:03d}/{:03d}]-epoch[{:03d}/{:03d}]|'.format(i+1, iter_per_epoch, epoch_+1, self.run_config.total_epochs)
-            common_log = '[Training the {:}] Time={:}/iter Left={:} LR={:}'\
-                .format(epoch_str, time_per_iter, time_left, new_lr)
-            #time_log =  'Time Use : {:}, Data Time : {:}'\
-            #    .format(convert_secs2time(batch_time.average, True), convert_secs2time(data_time.average, True))
-            batch_log = '[{:}] training : loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}'\
-                .format(epoch_str, losses.average, accs.average, mious.average, fscores.average)
-            batch_log = common_log+'\n'+batch_log
-            return batch_log
-
+        epoch_time = AverageMeter()
+        end = time.time()
         # TODO: in retrain phase, should modify total_epochs
         for epoch in range(self.start_epoch, self.run_config.total_epochs):
-            logging.info('\n'+'-'*30, 'Train epoch: {}'.format(epoch+1), '-'*30+'\n')
+            self.logger.log('\n'+'-'*30+'Train epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='retrain')
+            epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_config.epochs)
+            self.scheduler.step(epoch)
+            train_lr = self.scheduler.get_lr()
+            time_left = epoch_time.average * (self.run_config.epochs - epoch)
+            common_log = '[Train the {:}] Left={:} LR={:}'.format(epoch_str, str(timedelta(seconds=time_left)) if epoch != 0 else None, train_lr)
+            self.logger.log(common_log, 'retrain')
             # train log have been wrote in train_one_epoch
-            loss, acc, miou, fscore = self.train_one_epoch(epoch,
-                lambda i, batch_time, data_time, losses, accs, mious, fscores, new_lr: train_log_func(
-                    epoch, i, batch_time, data_time, losses, accs, mious, fscores, new_lr
-                ))
-
-            #time_per_epoch = time.time() - end
-            #seconds_left = int((self.run_config.total_epochs - 1 - epoch) * time_per_epoch)
-            #print('Time per epoch: {}, Est. complete in: {}'
-            #             .format(str(timedelta(seconds=time_per_epoch)),
-            #                     str(timedelta(seconds=seconds_left))))
+            loss, acc, miou, fscore = self.train_one_epoch(epoch)
+            epoch_time.update(time.time()-end)
+            end = time.time()
             # perform validation at the end of each epoch.
-            if (epoch+1) % self.run_config.validation_freq == 0 or (epoch+1) == self.run_config.total_epochs:
-                # have write validation_log in self.validate
-                val_loss, val_acc, val_miou, val_fscore = self.validate(epoch, is_test=False, use_train_mode=False)
-                val_monitor_metric = get_monitor_metric(self.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
-                is_best = val_monitor_metric > self.best_monitor
-                self.best_monitor = max(self.best_monitor, val_monitor_metric)
-            else:
-                is_best = False
-
-            if (epoch+1) % self.run_config.save_ckpt_freq == 0 or (epoch+1) == self.run_config.total_epochs:
-                # re-train, only have weight_optimizer
-                # checkpoint is None, by default
-                self.save_model(epoch, is_warmup=False, is_best=is_best)
-
+            val_loss, val_acc, val_miou, val_fscore = self.validate(epoch, is_test=False, use_train_mode=False)
+            val_monitor_metric = get_monitor_metric(self.monitor_metric, val_loss, val_acc, val_miou, val_fscore)
+            is_best = val_monitor_metric > self.best_monitor
+            self.best_monitor = max(self.best_monitor, val_monitor_metric)
+            # update visdom
+            if self.vis is not None:
+                self.vis.visdom_update(epoch, 'loss', [loss, val_loss])
+                self.vis.visdom_update(epoch, 'accuracy', [acc, val_acc])
+                self.vis.visdom_update(epoch, 'miou', [miou, val_miou])
+                self.vis.visdom_update(epoch, 'f1score', [fscore, val_fscore])
+            # save checkpoint
+            if (epoch+1) % self.run_config.save_ckpt_freq == 0 or (epoch+1) == self.run_config.total_epochs or is_best:
+                checkpoint = {
+                    'state_dict'      : self.model.state_dict(),
+                    'weight_optimizer': self.optimizer.state_dict(),
+                    'weight_scheduler': self.scheduler.state_dict(),
+                    'best_monitor'    : (self.monitor_metric, self.best_monitor),
+                    'start_epoch'     : epoch+1,
+                    'actual_path'     : self.run_config.actual_path,
+                    'cell_genotypes'  : self.run_config.cell_genotypes
+                }
+                filename = self.logger.path(mode='retrain',is_best=is_best)
+                save_checkpoint(checkpoint, filename, self.logger, mode='retrain')

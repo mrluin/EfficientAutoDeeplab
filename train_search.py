@@ -45,7 +45,6 @@ def main(args):
         }
     else: weight_optimizer_params = None
     if args.scheduler == 'cosine':
-        # TODO: add additional params in args
         scheduler_params = {
             'T_max': args.T_max,
             'eta_min': args.eta_min
@@ -105,11 +104,11 @@ def main(args):
 
     arch_search_config = ArchSearchConfig( **args.__dict__ )
     # perform config save, for run_configs and arch_search_configs
-    save_configs(run_config.config, arch_search_config.config, args.path)
+    save_configs(run_config.config, arch_search_config.config, args.path, 'search')
     logger = prepare_logger(args)
     if args.open_vis:
-        vis = visdomer(args.port, args.server, 'GumbelAutoDeeplab', ['train','search'],
-                       ['loss','accuracy','miou','f1score'], init_params=None)
+        vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
+                       args.elements, init_params=None)
     else: vis = None
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
@@ -125,7 +124,7 @@ def main(args):
     print('||||||| FLOPS & PARAMS |||||||')
     print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
     '''
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     # TODO: perform resume automatically, according to last_info
     # warm up phase
     if arch_search_run_manager.warmup:
@@ -133,6 +132,7 @@ def main(args):
     # train search phase
     arch_search_run_manager.train()
 
+    logger.close()
 
 if __name__ == '__main__':
     args = obtain_train_search_args()

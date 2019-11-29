@@ -485,5 +485,11 @@ class ArchSearchRunManager:
                     'warmup'          : False,
                     'start_epochs'    : epoch + 1,
                 }
+                checkpoint_arch = {
+                    'actual_path'   : actual_path,
+                    'cell_genotypes': cell_genotypes,
+                }
                 filename = self.logger.path(mode='search', is_best=is_best)
+                filename_arch = self.logger.path(mode='arch', is_best=is_best)
                 save_checkpoint(checkpoint, filename, self.logger, mode='search')
+                save_checkpoint(checkpoint_arch, filename_arch, self.logger, mode='arch')

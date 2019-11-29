@@ -443,14 +443,16 @@ def detect_invalid_index(index, nb_layers):
     return None, True
 
 
-def save_configs(run_config, arch_search_config, save_path):
-    run_config_path = os.path.join(save_path, 'run.config')
-    arch_search_config_path = os.path.join(save_path, 'arch_search.config')
-    print('=' * 30+'\n'+'Run Configs dumps to {}'.format(run_config_path))
-    json.dump(run_config, open(run_config_path, 'w'), indent=4)
-    print('=' * 30+'\n'+'Arch Search Configs dumps to {}'.format(arch_search_config_path))
-    json.dump(arch_search_config, open(arch_search_config_path, 'w'), indent=4)
+def save_configs(run_config, arch_search_config, save_path, phase):
 
+    if run_config is not None:
+        run_config_path = os.path.join(save_path, 'run-{}.config'.format(phase))
+        print('=' * 30 + '\n' + 'Run Configs dumps to {}'.format(run_config_path))
+        json.dump(run_config, open(run_config_path, 'w'), indent=4)
+    if arch_search_config is not None:
+        arch_search_config_path = os.path.join(save_path, 'arch_search-{}.config'.format(phase))
+        print('=' * 30 + '\n' + 'Arch Search Configs dumps to {}'.format(arch_search_config_path))
+        json.dump(arch_search_config, open(arch_search_config_path, 'w'), indent=4)
 
 def convert_secs2time(epoch_time, return_str=False):
     need_hour = int(epoch_time / 3600)

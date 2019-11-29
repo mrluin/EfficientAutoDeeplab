@@ -1,4 +1,5 @@
 import argparse
+
 def obtain_train_search_args():
     DEFAULT_PORT =  8097
     DEFAULT_HOSTNAME = 'http://localhost'
@@ -10,8 +11,8 @@ def obtain_train_search_args():
 
     ''' common configs '''
     parser.add_argument('--path', type=str, default='/home/jingweipeng/ljb/Jingbo.TTB/Workspace', help='the path to workspace')
-    parser.add_argument('--exp_name', type=str, default='GumbelAutoDeeplab')
-    parser.add_argument('--gpu_ids', type=int, default=0, help='use single gpu by default')
+    parser.add_argument('--exp_name', type=str, default='GumbelAutoDeeplab-search')
+    parser.add_argument('--gpu_ids', type=int, default=1, help='use single gpu by default')
     parser.add_argument('--random_seed', type=int, default=1)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
@@ -19,7 +20,8 @@ def obtain_train_search_args():
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
     parser.add_argument('--server', type=str, default=DEFAULT_HOSTNAME)
-
+    parser.add_argument('--compare_phase', default=['train', 'search'])
+    parser.add_argument('--elements', default=['loss', 'accuracy', 'miou', 'f1score'])
     # not used
     parser.add_argument('--resume', default=False, action='store_true', help='checkpoint file if needed')
     parser.add_argument('--resume_file', type=str, default=None)
@@ -46,7 +48,7 @@ def obtain_train_search_args():
     parser.add_argument('--min_lr', type=float, default=None, help='param of linear') #scheduler param6
     parser.add_argument('--weight_optimizer_type', type=str, default='SGD', choices=['SGD','RMSprop'])
     parser.add_argument('--momentum', type=float, default=0.9) #optim param1
-    parser.add_argument('--nesterov', action='store_true') #optim param2
+    parser.add_argument('--nesterov', type=bool, default=True) #optim param2
     parser.add_argument('--weight_decay', type=float, default=0.0005) #optim param3
 
     parser.add_argument('--no_decay_keys', type=str, default=None, choices=[None, 'bn', 'bn#bias'])
