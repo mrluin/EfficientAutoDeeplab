@@ -5,7 +5,6 @@ import time
 import logging
 import json
 
-from models.split_fabric_auto_deeplab import SplitFabricAutoDeepLab
 from run_manager import *
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
@@ -268,7 +267,7 @@ class ArchSearchRunManager:
                         .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                     self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, 'warm')
 
-            torch.cuda.empty_cache()
+            #torch.cuda.empty_cache()
             epoch_time.update(time.time() - end_epoch)
             end_epoch = time.time()
 
@@ -420,6 +419,9 @@ class ArchSearchRunManager:
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
 
+                        #print('network_arch_parameters:\n'
+                        #      , self.net.network_arch_parameters)
+
             # update visdom
             if self.vis is not None:
                 self.vis.visdom_update(epoch, 'loss', [losses.average, valid_losses.average])
@@ -427,7 +429,7 @@ class ArchSearchRunManager:
                 self.vis.visdom_update(epoch, 'miou', [mious.average, valid_mious.average])
                 self.vis.visdom_update(epoch, 'f1score', [fscores.average, valid_fscores.average])
 
-            torch.cuda.empty_cache()
+            #torch.cuda.empty_cache()
             # update epoch_time
             epoch_time.update(time.time()-end_epoch)
             end_epoch = time.time()

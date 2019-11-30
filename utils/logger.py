@@ -12,8 +12,7 @@ from shutil import copyfile
 from copy import deepcopy
 import PIL
 import torch
-from nas_manager import ArchSearchRunManager
-from run_manager import RunManager
+
 
 def prepare_logger(args):
     args = deepcopy(args)
@@ -150,9 +149,9 @@ def copy_checkpoint(src, dst, logger, mode):
     copyfile(src, dst)
     if hasattr(logger, 'log'): logger.log('copy the file from {:} into {:}'.format(src, dst), mode)
 
-def display_all_families_information(args, manager, logger):
+def display_all_families_information(args, phase, manager, logger):
     log_str = ''
-    if isinstance(manager, ArchSearchRunManager):
+    if phase == 'search':
         log_str += '==================== {:10s} ====================\n'.format(manager.run_manager.run_config.dataset)
         log_str += 'Train Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.train_loader), manager.run_manager.run_config.train_loader.batch_size)
         log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.valid_loader), manager.run_manager.run_config.valid_loader.batch_size)
@@ -171,7 +170,7 @@ def display_all_families_information(args, manager, logger):
         log_str += 'num_layers        :: {:}\n'.format(args.nb_layers)
         log_str += 'num_classes       :: {:}\n'.format(args.nb_classes)
         log_str += 'model_init        :: {:}\n'.format(args.model_init)
-    elif isinstance(manager, RunManager):
+    elif phase == 'retrain':
         log_str = '==================== {:10s} ====================\n'.format(manager.run_config.dataset)
         log_str += 'Train Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.train_loader), manager.run_config.train_loader.batch_size)
         log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.valid_loader), manager.run_config.valid_loader.batch_size)

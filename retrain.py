@@ -109,7 +109,7 @@ def main(args):
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
                                               args.steps, args.nb_classes, actual_path, cell_genotypes, args.conv_candidates)
         retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
-        display_all_families_information(args, retrain_run_manager, logger)
+        display_all_families_information(args, 'retrain', retrain_run_manager, logger)
         # perform train and validation in train() method
         retrain_run_manager.train()
     else:
@@ -121,7 +121,7 @@ def main(args):
                                               args.steps, args.nb_classes, actual_path, cell_genotypes, args.conv_candidates)
         normal_network.load_state_dict(checkpoint['state_dict'])
         test_manager = RunManager(args.path, normal_network, logger, run_config, vis=None, out_log=True)
-        display_all_families_information(args, test_manager, logger)
+        display_all_families_information(args, 'retrain', test_manager, logger)
         test_manager.validate(epoch=None, is_test=True, use_train_mode=False)
 
 if __name__ == '__main__':

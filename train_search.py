@@ -112,10 +112,10 @@ def main(args):
     else: vis = None
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
-        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates
+        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates, logger
     )
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
-    display_all_families_information(args, arch_search_run_manager, logger)
+    display_all_families_information(args, 'search', arch_search_run_manager, logger)
 
     '''
     # get_model_infos, perform inference
