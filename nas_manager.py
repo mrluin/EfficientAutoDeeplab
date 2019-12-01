@@ -442,7 +442,7 @@ class ArchSearchRunManager:
             )
             self.logger.log(log, mode='search')
 
-            self.logger.log('<<<---------->>> Super Network decoding ... ... ', mode='search')
+            self.logger.log('<<<---------->>> Super Network decoding <<<---------->>> ', mode='search')
             actual_path, cell_genotypes = self.net.network_cell_arch_decode()
             new_genotypes = []
             for _index, genotype in cell_genotypes:
@@ -456,7 +456,7 @@ class ArchSearchRunManager:
                       'genotype:'.format(epoch_str, actual_path)
             for _index, genotype in new_genotypes:
                 log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
-            self.logger.log(log_str, mode='search')
+            self.logger.log(log_str, mode='network_space', dispaly=False)
 
             # TODO： perform save the best network ckpt
             # 1. save network_arch_parameters and cell_arch_parameters

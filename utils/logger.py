@@ -54,6 +54,11 @@ class Logger(object):
         self.logger_path_valid = self.log_dir / 'seed-{:}-T-{:}-valid.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
         self.logger_path_test = self.log_dir / 'seed-{:}-T-{:}-test.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
 
+        # used to debug
+        # network_space used to save network_space and actual_path
+        self.logger_path_network_space = self.log_dir / 'seed-{:}-T-{:}-network_space.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
+        self.logger_path_single_path = self.log_dir / 'seed-{:}-T-{:}-single_path.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
+
         # when re-open, rewrite the log file, otherwise append.
         self.logger_file_info = open(self.logger_path_info, 'w')
         self.logger_file_warm = open(self.logger_path_warm, 'w')
@@ -62,7 +67,9 @@ class Logger(object):
         self.logger_file_valid = open(self.logger_path_valid, 'w')
         self.logger_file_test = open(self.logger_path_test, 'w')
 
-
+        # used to debug
+        self.logger_file_network_space = open(self.logger_path_network_space, 'w')
+        self.logger_file_single_path = open(self.logger_path_single_path, 'w')
     def __repr__(self):
         return ('{name}(dir={log_dir}), (ckpt_dir={model_dir}), (prediction_dir={predictions_dir})'.format(name=self.__class__.__name__, **self.__dict__))
 
@@ -102,11 +109,16 @@ class Logger(object):
         self.logger_file_test.close()
         self.logger_file_info.close()
 
-    def log(self, string, mode, save=True, stdout=False):
-        if stdout:
-            sys.stdout.write(string); sys.stdout.flush()
-        else:
-            print(string)
+        # used to debug
+        self.logger_file_network_space.close()
+        self.logger_file_single_path.close()
+
+    def log(self, string, mode, save=True, stdout=False, display=True):
+        if display:
+            if stdout:
+                sys.stdout.write(string); sys.stdout.flush()
+            else:
+                print(string)
         if save:
             if mode == 'warm':
                 self.logger_file_warm.write('{:}\n'.format(string))
@@ -126,6 +138,12 @@ class Logger(object):
             elif mode == 'info':
                 self.logger_file_info.write('{:}\n'.format(string))
                 self.logger_file_info.flush()
+            elif mode == 'network_space':
+                self.logger_file_network_space.write('{:}\n'.format(string))
+                self.logger_file_network_space.flush()
+            elif mode == 'sinlge_path':
+                self.logger_file_single_path.write('{:}\n'.format(string))
+                self.logger_file_single_path.flush()
             else:
                 ValueError('do not support mode {:}'.format(mode))
 

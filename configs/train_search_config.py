@@ -26,15 +26,15 @@ def obtain_train_search_args():
     parser.add_argument('--resume', default=False, action='store_true', help='checkpoint file if needed')
     parser.add_argument('--resume_file', type=str, default=None)
     ''' run configs, including network weight training hyperparameters '''
-    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--epochs', type=int, default=100)
     # data & dataset
     parser.add_argument('--save_path', type=str, default='/home/jingweipeng/ljb/WHUBuilding', help='root dir of dataset')
     parser.add_argument('--dataset', type=str, default='WHUBuilding', choices=['WHUBuilding'])
     parser.add_argument('--nb_classes', type=int, default=2)
-    parser.add_argument('--train_batch_size', type=int, default=8)
+    parser.add_argument('--train_batch_size', type=int, default=6)
     parser.add_argument('--valid_size', type=float, default=None, help='validation set split proportion from training set')
-    parser.add_argument('--valid_batch_size', type=int, default=8)
-    parser.add_argument('--test_batch_size', type=int, default=8)
+    parser.add_argument('--valid_batch_size', type=int, default=6)
+    parser.add_argument('--test_batch_size', type=int, default=6)
     parser.add_argument('--ori_size', type=int, default=512, help='original image size')
     parser.add_argument('--crop_size', type=int, default=512, help='size of cropped patches')
     # optimization
@@ -60,7 +60,7 @@ def obtain_train_search_args():
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
-    parser.add_argument('--train_print_freq', type=int, default=30)
+    parser.add_argument('--train_print_freq', type=int, default=50)
 
     # these two make no sense.
     #parser.add_argument('--print_save_arch_information', default=False, action='store_true')
@@ -81,7 +81,7 @@ def obtain_train_search_args():
     # parser.add_argument('--stride_stages', type=str, default='2,2,2,1,2,1')
     ''' architecture search config, only using gradient-based algorithm by default '''
     #parser.add_argument('--arch_algo', type=str, default='grad', choices=['grad'])
-    parser.add_argument('--warmup_epochs', type=int, default=5)
+    parser.add_argument('--warmup_epochs', type=int, default=20)
     parser.add_argument('--warmup_lr', type=float, default=0.05, help='init_lr of warmup phase')
     parser.add_argument('--arch_init_type', type=str, default='normal', choices=['normal', 'uniform'])
     parser.add_argument('--arch_init_ratio', type=float, default=1e-3)
