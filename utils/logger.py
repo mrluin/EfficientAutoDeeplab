@@ -54,6 +54,9 @@ class Logger(object):
         self.logger_path_valid = self.log_dir / 'seed-{:}-T-{:}-valid.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
         self.logger_path_test = self.log_dir / 'seed-{:}-T-{:}-test.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
 
+        # add new attribute
+        #self.logger_path_last_info = self.log_dir / 'seed-{:}-T-{:}-last-info.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
+
         # used to debug
         # network_space used to save network_space and actual_path
         self.logger_path_network_space = self.log_dir / 'seed-{:}-T-{:}-network_space.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
@@ -70,17 +73,19 @@ class Logger(object):
         # used to debug
         self.logger_file_network_space = open(self.logger_path_network_space, 'w')
         self.logger_file_single_path = open(self.logger_path_single_path, 'w')
+
     def __repr__(self):
         return ('{name}(dir={log_dir}), (ckpt_dir={model_dir}), (prediction_dir={predictions_dir})'.format(name=self.__class__.__name__, **self.__dict__))
 
 
     def path(self, mode, is_best=False):
         # for save model, in warm_up phase, search phase, and retrain phase.
-        valids = ('warm', 'search', 'retrain', 'arch')
-        if   mode == 'warm'   : return self.model_dir / 'seed-{:}-warm.pth'.format(self.seed)
-        elif mode == 'search' : return self.model_dir / 'seed-{:}-search.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-search-best.pth'.format(self.seed)
-        elif mode == 'retrain': return self.model_dir / 'seed-{:}-retrain.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-retrain-best.pth'.format(self.seed)
-        elif mode == 'arch'   : return self.model_dir / 'seed-{:}-arch.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-arch-best.pth'.format(self.seed)
+        valids = ('warm', 'search', 'retrain', 'arch', 'last_info')
+        if   mode == 'warm'     : return self.model_dir / 'seed-{:}-warm.pth'.format(self.seed)
+        elif mode == 'search'   : return self.model_dir / 'seed-{:}-search.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-search-best.pth'.format(self.seed)
+        elif mode == 'retrain'  : return self.model_dir / 'seed-{:}-retrain.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-retrain-best.pth'.format(self.seed)
+        elif mode == 'arch'     : return self.model_dir / 'seed-{:}-arch.pth'.format(self.seed) if is_best==False else self.model_dir / 'seed-{:}-arch-best.pth'.format(self.seed)
+        elif mode == 'last_info': return self.model_dir / 'seed-{:}-last-info.pth'.format(self.seed) # used to save checkpoint
         else: raise TypeError('Unknow mode = {:}, valid modes = {:}'.format(mode, valids))
 
     def extract_log(self, mode):

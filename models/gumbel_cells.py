@@ -180,7 +180,9 @@ class GumbelCell(MyModule):
         self.edge2index = {key:i for i, key in enumerate(self.edge_keys)} # {:}<-{:} : index
         self.nb_edges = len(self.ops)
 
-        self.cell_arch_parameters = nn.Parameter(torch.Tensor(self.nb_edges, self.n_choice))
+        # TODO: change into zero initialization following darts and gumbels
+        #self.cell_arch_parameters = nn.Parameter(torch.Tensor(self.nb_edges, self.n_choice))
+        self.cell_arch_parameters = nn.Parameter(1e-3 * torch.randn(self.nb_edges, self.n_choice))
 
 
     @property

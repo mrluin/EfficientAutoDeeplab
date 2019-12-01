@@ -319,6 +319,7 @@ class RunManager:
         return flop
 
     def load_model(self, checkpoint_file):
+        # TODO: get rid of load_model. load resume_file have completed in the main function in each phase.
         # only used in run_manager
         assert checkpoint_file is not None and os.path.exists(checkpoint_file),\
             'checkpoint_file can not be found'

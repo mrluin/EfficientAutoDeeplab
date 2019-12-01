@@ -182,15 +182,20 @@ class GumbelAutoDeepLab(MyNetwork):
         self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3, self.nb_classes)
 
         self.nb_cells = len(self.cells)
-        self.network_arch_parameters = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
-        self.aspp_arch_parameters = nn.Parameter(torch.Tensor(4))
+        # TODO: change initialization of arch_parameters into zero initialization following darts.
+        #self.network_arch_parameters = nn.Parameter(torch.Tensor(self.nb_layers, 4, 3))
+        #self.aspp_arch_parameters = nn.Parameter(torch.Tensor(4))
+        self.network_arch_parameters = nn.Parameter(1e-3 * torch.randn(self.nb_layers, 4, 3))
+        self.aspp_arch_parameters = nn.Parameter(1e-3 * torch.randn(4))
+
         self.tau = 10
 
         # todo
         #self.nb_edges =
         #self.edge2index =
 
-        self.set_bn_param(bn_momentum, bn_eps)
+        #self.set_bn_param(bn_momentum, bn_eps)
+
     def init_arch_params(self, init_type='normal', init_ratio=1e-3):
         for param in self.arch_parameters():
             if init_type == 'normal':

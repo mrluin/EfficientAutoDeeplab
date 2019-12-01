@@ -102,11 +102,14 @@ class ArchSearchRunManager:
 
         self.run_manager = RunManager(path, super_net, logger, run_config, out_log=True)
         self.arch_search_config = arch_search_config
+
+        # TODO: get ride of self.net.init_arch_params
         # init architecture parameters
         self.net.init_arch_params(
             self.arch_search_config.arch_init_type,
             self.arch_search_config.arch_init_ratio
         )
+
         # build architecture optimizer
         self.arch_optimizer = self.arch_search_config.build_optimizer(self.net.arch_parameters())
         self.warmup = True
@@ -290,9 +293,9 @@ class ArchSearchRunManager:
             if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch+1) == warmup_epochs:
                 state_dict = self.net.state_dict()
                 # rm architecture parameters because, in warm_up phase, arch_parameters are not updated.
-                for key in list(state_dict.keys()):
-                    if 'cell_arch_parameters' in key or 'network_arch_parameters' in key or 'aspp_arch_parameters' in key:
-                        state_dict.pop(key)
+                #for key in list(state_dict.keys()):
+                #    if 'cell_arch_parameters' in key or 'network_arch_parameters' in key or 'aspp_arch_parameters' in key:
+                #        state_dict.pop(key)
                 checkpoint = {
                     'state_dict': state_dict,
                     'weight_optimizer' : self.run_manager.optimizer.state_dict(),
@@ -456,7 +459,7 @@ class ArchSearchRunManager:
                       'genotype:'.format(epoch_str, actual_path)
             for _index, genotype in new_genotypes:
                 log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
-            self.logger.log(log_str, mode='network_space', dispaly=False)
+            self.logger.log(log_str, mode='network_space', display=False)
 
             # TODO： perform save the best network ckpt
             # 1. save network_arch_parameters and cell_arch_parameters

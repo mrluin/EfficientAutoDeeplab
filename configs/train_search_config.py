@@ -87,7 +87,7 @@ def obtain_train_search_args():
     parser.add_argument('--arch_init_ratio', type=float, default=1e-3)
     parser.add_argument('--arch_optimizer_type', type=str, default='adam', choices=['sgd', 'adam'])
     parser.add_argument('--arch_lr', type=float, default=3e-3) # todo, pay attention, change into 3e-3 according to AutoDeeplab
-    parser.add_argument('--arch_adam_beta1', type=float, default=0) # arch_optim_param1
+    parser.add_argument('--arch_adam_beta1', type=float, default=0.5) # arch_optim_param1
     parser.add_argument('--arch_adam_beta2', type=float, default=0.999) # arch_optim_param2
     parser.add_argument('--arch_adam_eps', type=float, default=1e-8) # arch_optim_param3
     parser.add_argument('--arch_weight_decay', type=float, default=1e-3)

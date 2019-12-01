@@ -105,11 +105,24 @@ def main(args):
         for _index, genotype in new_genotypes:
             log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
         logger.log(log_str, mode='info')
-
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
                                               args.steps, args.nb_classes, actual_path, cell_genotypes, args.conv_candidates)
         retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
         display_all_families_information(args, 'retrain', retrain_run_manager, logger)
+
+        if args.resume:
+            if args.resume_file.exsits():
+                checkpoint = torch.load(args.resume_file)
+                normal_network.load_state_dict(checkpoint['state_dict'])
+                retrain_run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
+                retrain_run_manager.scheduler.load_state_dict(checkpoint['scheduler'])
+                retrain_run_manager.monitor_metric = checkpoint['best_monitor'][0]
+                retrain_run_manager.best_monitor = checkpoint['best_monitor'][1]
+                retrain_run_manager.start_epoch = checkpoint['start_epochs']
+                # can don't read actual_path and cell_genotypes
+            else:
+                logger.log("=> can not find the file: {:} please re-confirm it\n"
+                           "=> start warm-up and search from scratch... ...".format(args.resume_file), mode='info')
         # perform train and validation in train() method
         retrain_run_manager.train()
     else:
