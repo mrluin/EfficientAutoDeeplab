@@ -146,7 +146,7 @@ class Logger(object):
             elif mode == 'network_space':
                 self.logger_file_network_space.write('{:}\n'.format(string))
                 self.logger_file_network_space.flush()
-            elif mode == 'sinlge_path':
+            elif mode == 'single_path':
                 self.logger_file_single_path.write('{:}\n'.format(string))
                 self.logger_file_single_path.flush()
             else:

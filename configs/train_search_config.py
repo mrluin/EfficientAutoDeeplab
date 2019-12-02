@@ -13,7 +13,7 @@ def obtain_train_search_args():
     parser.add_argument('--path', type=str, default='/home/jingweipeng/ljb/Jingbo.TTB/Workspace', help='the path to workspace')
     parser.add_argument('--exp_name', type=str, default='GumbelAutoDeeplab-search')
     parser.add_argument('--gpu_ids', type=int, default=1, help='use single gpu by default')
-    parser.add_argument('--random_seed', type=int, default=1)
+    parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
     # for visdom

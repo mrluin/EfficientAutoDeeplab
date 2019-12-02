@@ -16,46 +16,48 @@ from modules.my_modules import MyModule
 __all__ = ['build_candidate_ops', 'GumbelCell', 'MixedOp']
 
 
-def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order):
+def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order, affine=True):
 
+    # learnable affine parameter is turn off in search phase.
+    # learnable affine parameter is set to be learnable in retrain and test phase by default.
     if candiate_ops is None:
         raise ValueError('Please specify a candidate set')
 
     # None zero layer
     name2ops = {
-        'Identity': lambda inc, outc, s: Identity(inc, outc, ops_order=ops_order),
-        'Zero': lambda inc, outc, s: Zero(s),
+        'Identity': lambda inc, outc, s, affine: Identity(inc, outc, ops_order=ops_order, affine=affine),
+        'Zero'    : lambda inc, outc, s        : Zero(s),
     }
     # add MBConv Layers
     name2ops.update({
-        '3x3_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 1),
-        '3x3_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 2),
-        '3x3_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 3),
-        '3x3_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 4),
-        '3x3_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 5),
-        '3x3_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 6),
-        '5x5_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 1),
-        '5x5_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 2),
-        '5x5_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 3),
-        '5x5_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 4),
-        '5x5_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 5),
-        '5x5_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 6),
-        '7x7_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 1),
-        '7x7_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 2),
-        '7x7_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 3),
-        '7x7_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 4),
-        '7x7_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 5),
-        '7x7_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 6),
+        '3x3_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 1, affine),
+        '3x3_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 2, affine),
+        '3x3_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 3, affine),
+        '3x3_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 4, affine),
+        '3x3_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 5, affine),
+        '3x3_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 6, affine),
+        '5x5_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 1, affine),
+        '5x5_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 2, affine),
+        '5x5_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 3, affine),
+        '5x5_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 4, affine),
+        '5x5_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 5, affine),
+        '5x5_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 6, affine),
+        '7x7_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 1, affine),
+        '7x7_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 2, affine),
+        '7x7_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 3, affine),
+        '7x7_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 4, affine),
+        '7x7_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 5, affine),
+        '7x7_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 6, affine),
         #===========================================================================
-        '3x3_DWConv': lambda inc, outc, s: SepConv(inc, outc, 3, s),
-        '5x5_DWConv': lambda inc, outc, s: SepConv(inc, outc, 5, s),
-        '3x3_DilConv': lambda inc, outc, s: DilConv(inc, outc, 3, s, 2),
-        '5x5_DilConv': lambda inc, outc, s: DilConv(inc, outc, 5, s, 2),
-        '3x3_AvgPooling': lambda inc, outc, s: nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
-        '3x3_MaxPooling': lambda inc, outc, s: nn.MaxPool2d(3, stride=s, padding=1),
+        '3x3_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 3, s, affine),
+        '5x5_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 5, s, affine),
+        '3x3_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 3, s, 2, affine),
+        '5x5_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 5, s, 2, affine),
+        '3x3_AvgPooling': lambda inc, outc, s, : nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
+        '3x3_MaxPooling': lambda inc, outc, s, : nn.MaxPool2d(3, stride=s, padding=1),
     })
     return [
-        name2ops[name](in_channels, out_channels, stride) for name in candiate_ops
+        name2ops[name](in_channels, out_channels, stride, affine) for name in candiate_ops
     ]
 
 
@@ -91,8 +93,13 @@ class GumbelCell(MyModule):
     def __init__(self, layer,
                  filter_multiplier, block_multiplier, steps,
                  prev_prev_scale, prev_scale, scale, conv_candidates,
-                 ):
+                 affine=True):
         super(GumbelCell, self).__init__()
+
+        # todo add new attribute, affine parameter for bn, making searching phase more stable
+        # set True by default
+        # set False in searching phase
+        self.affine = affine
 
         # todo add new attribute, for debugging
         self.layer = layer
@@ -166,7 +173,7 @@ class GumbelCell(MyModule):
                     mobile_inverted_conv = MixedOp(
                         build_candidate_ops(self.conv_candidates,
                         in_channels=self.outc, out_channels=self.outc, stride=1,
-                        ops_order='act_weight_bn')) # normal MixedOp, ModuleList with weight
+                        ops_order='act_weight_bn', affine=self.affine)) # normal MixedOp, ModuleList with weight
                     shortcut = Identity(self.outc, self.outc)
                 if mobile_inverted_conv is None and shortcut is None:
                     inverted_residual_block = None

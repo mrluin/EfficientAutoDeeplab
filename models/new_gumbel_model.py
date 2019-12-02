@@ -15,52 +15,10 @@ from modules.operations import ASPP, FactorizedIncrease, ConvLayer, FactorizedRe
     Zero, SepConv, DilConv
 from run_manager import RunConfig
 from utils.common import get_prev_c
+from models.gumbel_cells import build_candidate_ops
 
 
 __all__ = ['NewGumbelCell', 'NewGumbelAutoDeeplab']
-
-def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order):
-
-    if candiate_ops is None:
-        raise ValueError('Please specify a candidate set')
-
-    # None zero layer
-    name2ops = {
-        'Identity': lambda inc, outc, s: Identity(inc, outc, ops_order=ops_order),
-        'Zero': lambda inc, outc, s: Zero(s),
-    }
-    # add MBConv Layers
-    name2ops.update({
-        '3x3_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 1),
-        '3x3_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 2),
-        '3x3_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 3),
-        '3x3_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 4),
-        '3x3_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 5),
-        '3x3_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 3, s, 6),
-        '5x5_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 1),
-        '5x5_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 2),
-        '5x5_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 3),
-        '5x5_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 4),
-        '5x5_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 5),
-        '5x5_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 5, s, 6),
-        '7x7_MBConv1': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 1),
-        '7x7_MBConv2': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 2),
-        '7x7_MBConv3': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 3),
-        '7x7_MBConv4': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 4),
-        '7x7_MBConv5': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 5),
-        '7x7_MBConv6': lambda inc, outc, s: MBInvertedConvLayer(inc, outc, 7, s, 6),
-        #===========================================================================
-        '3x3_DWConv': lambda inc, outc, s: SepConv(inc, outc, 3, s),
-        '5x5_DWConv': lambda inc, outc, s: SepConv(inc, outc, 5, s),
-        '3x3_DilConv': lambda inc, outc, s: DilConv(inc, outc, 3, s, 2),
-        '5x5_DilConv': lambda inc, outc, s: DilConv(inc, outc, 5, s, 2),
-        '3x3_AvgPooling': lambda inc, outc, s: nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
-        '3x3_MaxPooling': lambda inc, outc, s: nn.MaxPool2d(3, stride=s, padding=1),
-    })
-    return [
-        name2ops[name](in_channels, out_channels, stride) for name in candiate_ops
-    ]
-
 
 class NewGumbelCell(MyModule):
     def __init__(self, layer, filter_multiplier, block_multiplier, steps,
@@ -123,7 +81,7 @@ class NewGumbelCell(MyModule):
         for node_str , select_op_index in self.genotype:
             # operation name -> conv_candidates
             operation = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
-                                            stride=1, ops_order='act_weight_bn')
+                                            stride=1, ops_order='act_weight_bn', affine=True)
             self.ops[node_str] = operation
 
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
@@ -222,13 +180,13 @@ class NewGumbelAutoDeeplab(MyNetwork):
         self.out3 = int(self.filter_multiplier * self.block_multiplier * 32 / 4)
         last_scale = self.actual_path[-1]
         if last_scale == 0:
-            self.aspp = ASPP(self.out0 ,self.nb_classes, 24, self.nb_classes)
+            self.aspp = ASPP(self.out0 ,self.nb_classes, 24)
         elif last_scale == 1:
-            self.aspp = ASPP(self.out1, self.nb_classes, 12, self.nb_classes)
+            self.aspp = ASPP(self.out1, self.nb_classes, 12)
         elif last_scale == 2:
-            self.aspp = ASPP(self.out2, self.nb_classes, 6, self.nb_classes)
+            self.aspp = ASPP(self.out2, self.nb_classes, 6)
         elif last_scale == 3:
-            self.aspp = ASPP(self.out3, self.nb_classes, 3, self.nb_classes)
+            self.aspp = ASPP(self.out3, self.nb_classes, 3)
         else:
             raise ValueError('invalid last_scale value {}'.format(last_scale))
     def forward(self, x):

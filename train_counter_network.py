@@ -9,7 +9,7 @@ import torch
 import glob
 
 from models.gumbel_super_network import GumbelAutoDeepLab
-from run_manager import RunConfig
+from run_manager import RunConfig, RunManager
 from nas_manager import ArchSearchConfig, ArchSearchRunManager
 from configs.train_search_config import obtain_train_search_args
 from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir
@@ -17,6 +17,8 @@ from utils.common import save_configs
 from utils.flop_benchmark import get_model_infos
 from utils.logger import prepare_logger, display_all_families_information
 from utils.visdom_utils import visdomer
+from models.counter_network import CounterMBConvNet
+
 def main(args):
 
     assert torch.cuda.is_available(), 'CUDA is not available'
@@ -75,7 +77,7 @@ def main(args):
         'epochs'           : args.epochs,
         'class_num'        : args.nb_classes,
     }
-    # TODO need modification
+    # TODO need modification, not need in counter_network
     args.conv_candidates = [
         '3x3_MBConv3', '3x3_MBConv6',
         '5x5_MBConv3', '5x5_MBConv6',
@@ -110,67 +112,18 @@ def main(args):
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=None)
     else: vis = None
+    '''
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates, logger
     )
-    arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
-    display_all_families_information(args, 'search', arch_search_run_manager, logger)
-
     '''
-    # get_model_infos, perform inference
-    # TODO: modify the way of forward into gdas_forward
-    flop, param = get_model_infos(super_network, [1, 3, 512, 512])
-    print('||||||| FLOPS & PARAMS |||||||')
-    print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
-    '''
-
-    # TODO: used to resume warmup phase or search phase.
-    # 1. resume warmup phase
-    # 2. resume search phase
-    # 3. add last_info log × not last_info, every time, the saved_file name is not consistent, should given resume_file
-
-    if args.resume:
-        if args.resume_file.exists():
-            logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
-            checkpoint = torch.load(args.resume_file)
-            warm_up = checkpoint['warmup']
-            super_network.load_state_dict(checkpoint['state_dict'])
-            if warm_up:
-                arch_search_run_manager.warmup = warm_up
-                super_network.load_state_dict(checkpoint['state_dict'])
-                arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
-                arch_search_run_manager.run_manager.scheduler.load_state_dict(checkpoint['weight_scheduler'])
-                start_epochs = checkpoint['start_epochs']
-                # set start epochs in warm_up phase
-                arch_search_run_manager.warmup_epoch = start_epochs
-                arch_search_run_manager.start_epoch = start_epochs
-                logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in warmup phase".format(args.resume_file, start_epochs), mode='info')
-            else:
-                arch_search_run_manager.warmup = warm_up
-                super_network.load_state_dict(checkpoint['state_dict'])
-                arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
-                arch_search_run_manager.run_manager.scheduler.load_state_dict(checkpoint['weight_scheduler'])
-                arch_search_run_manager.arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
-                arch_search_run_manager.run_manager.monitor_metric = checkpoint['best_monitor'][0]
-                arch_search_run_manager.run_manager.best_monitor = checkpoint['best_monitor'][1]
-                start_epochs = checkpoint['start_epochs']
-                arch_search_run_manager.start_epoch = start_epochs
-                logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in search phase".format(args.resume_file, start_epochs), mode='info')
-    else:
-        logger.log("=> can not find the file: {:} please re-confirm it\n"
-                   "=> start warm-up and search from scratch... ...".format(args.resume_file), mode='info')
-
-    # torch.autograd.set_detect_anomaly(True)
-    # warm up phase
-    if arch_search_run_manager.warmup:
-        arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
+    super_network = CounterMBConvNet(2)
+    train_manager = RunManager(args.path, super_network, logger, run_config, vis=vis, out_log=True)
     # train search phase
-    arch_search_run_manager.train()
-
+    train_manager.train()
     logger.close()
 
 if __name__ == '__main__':
     args = obtain_train_search_args()
-    if args.random_seed is None or args.random_seed < 0: args.random_seed = torch.randint(1, 100000)
     main(args)

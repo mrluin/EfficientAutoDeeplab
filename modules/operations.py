@@ -49,6 +49,7 @@ class My2DLayer(MyModule):
                  in_channels,
                  out_channels,
                  use_bn=True,
+                 affine=True, # set True by default
                  act_func='relu',
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
@@ -65,7 +66,7 @@ class My2DLayer(MyModule):
         modules = {}
         # use 'act_weight_bn' by default
         if self.use_bn:
-            modules['bn'] = nn.BatchNorm2d(self.out_channels)
+            modules['bn'] = nn.BatchNorm2d(self.out_channels, affine=affine)
         else:
             modules['bn'] = None
 
@@ -137,6 +138,7 @@ class ConvLayer(My2DLayer):
                  stride,
                  bias,
                  use_bn=True,
+                 affine=True,
                  act_func='relu',
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
@@ -145,7 +147,7 @@ class ConvLayer(My2DLayer):
         self.padding = get_padding_size(self.kernel_size, 1)
         self.bias = bias
         self.groups = 1
-        super(ConvLayer, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+        super(ConvLayer, self).__init__(in_channels, out_channels, use_bn, affine, act_func, dropout_rate, ops_order)
 
     def weight_op(self):
         weight_dict = OrderedDict()
@@ -183,6 +185,7 @@ class DilConv(My2DLayer):
                  dilation,
                  bias=False,
                  use_bn=True,
+                 affine=True,
                  act_func='relu',
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
@@ -191,7 +194,7 @@ class DilConv(My2DLayer):
         self.dilation = dilation
         self.padding = get_padding_size(self.kernel_size, self.dilation)
         self.bias = bias
-        super(DilConv, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+        super(DilConv, self).__init__(in_channels, out_channels, use_bn, affine, act_func, dropout_rate, ops_order)
     def weight_op(self):
         weight_dict = OrderedDict()
         weight_dict['conv'] = nn.Conv2d(
@@ -227,6 +230,7 @@ class SepConv(My2DLayer):
                  stride,
                  bias=False,
                  use_bn=True,
+                 affine=True,
                  act_func='relu',
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
@@ -235,7 +239,7 @@ class SepConv(My2DLayer):
         self.stride = stride
         self.padding = get_padding_size(self.kernel_size, 1)
         self.bias = bias
-        super(SepConv, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+        super(SepConv, self).__init__(in_channels, out_channels, use_bn, affine, act_func, dropout_rate, ops_order)
     def weight_op(self):
 
         weight_dict = OrderedDict()
@@ -276,10 +280,11 @@ class Identity(My2DLayer):
                  in_channels,
                  out_channels,
                  use_bn=False,
+                 affine=True,
                  act_func=None,
                  dropout_rate=0.,
                  ops_order='act_weight_bn'):
-        super(Identity, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+        super(Identity, self).__init__(in_channels, out_channels, use_bn, affine, act_func, dropout_rate, ops_order)
         # pay attention to use_bn act_func of Identity Operation
     def weight_op(self):
         return None
@@ -338,6 +343,7 @@ class FactorizedReduce(MyModule):
                  out_channels,
                  act='relu',
                  use_bn=True,
+                 affine=True,
                  bias=False,
                  ops_order='act_weight_bn'):
         super(FactorizedReduce, self).__init__()
@@ -351,7 +357,7 @@ class FactorizedReduce(MyModule):
         self.act_func = build_activation(act, inplace=False)
         # bn after weight_conv by default
         if use_bn:
-            self.bn = nn.BatchNorm2d(out_channels)
+            self.bn = nn.BatchNorm2d(out_channels, affine=affine)
         self.conv_1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
         self.conv_2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
     def forward(self, x):
@@ -391,9 +397,11 @@ class FactorizedIncrease(MyModule):
                  out_channels,
                  act='relu',
                  use_bn=True,
+                 affine=True,
                  bias=False,
                  ops_order='act_weight_bn'):
         super(FactorizedIncrease, self).__init__()
+        # bilinear interpolation
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.act = act
@@ -403,7 +411,7 @@ class FactorizedIncrease(MyModule):
 
         self.act_func = build_activation(self.act, inplace=False)
         if self.use_bn:
-            self.bn = nn.BatchNorm2d(self.out_channels)
+            self.bn = nn.BatchNorm2d(self.out_channels, affine=affine)
         self.upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv = nn.Conv2d(self.in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
@@ -443,29 +451,29 @@ class FactorizedIncrease(MyModule):
         return False
 
 class ASPP(MyModule):
-    def __init__(self, in_channels, out_channels, dilation, nb_classes):
+    def __init__(self, in_channels, out_channels, dilation, affine=True):
         super(ASPP, self).__init__()
 
-        self.nb_classes = nb_classes
+        #self.nb_classes = nb_classes
         self.dilation = dilation
         self.conv1x1 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels, in_channels, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(in_channels))
+            ('bn', nn.BatchNorm2d(in_channels, affine=affine))
         ]))
         padding3x3 = get_padding_size(3, dilation)
         self.conv3x3 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels, in_channels, 3, padding=padding3x3, dilation=dilation, bias=False)),
-            ('bn', nn.BatchNorm2d(in_channels)),
+            ('bn', nn.BatchNorm2d(in_channels, affine=affine)),
         ]))
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.gp_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels, in_channels, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(in_channels)),
+            ('bn', nn.BatchNorm2d(in_channels, affine=affine)),
             ('relu', nn.ReLU(inplace=False))
         ]))
         self.concat_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(in_channels * 3, in_channels, 1, bias=False)),
-            ('bn', nn.BatchNorm2d(in_channels))
+            ('bn', nn.BatchNorm2d(in_channels, affine=affine))
         ]))
         self.final_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
 
@@ -498,7 +506,7 @@ class ASPP(MyModule):
 class MBInvertedConvLayer(MyModule):
     def __init__(self,
                  in_channels, out_channels,
-                 kernel_size=3, stride=1, expand_ratio=6, mid_channels=None):
+                 kernel_size=3, stride=1, expand_ratio=6, mid_channels=None, affine=True):
         super(MBInvertedConvLayer, self).__init__()
 
         self.in_channels = in_channels
@@ -518,7 +526,7 @@ class MBInvertedConvLayer(MyModule):
         else:
             self.inverted_bottleneck = nn.Sequential(OrderedDict([
                 ('conv', nn.Conv2d(self.in_channels, feature_dim, 1, 1, 0, bias=False)),
-                ('bn', nn.BatchNorm2d(feature_dim)),
+                ('bn', nn.BatchNorm2d(feature_dim, affine=affine)),
                 ('act', nn.ReLU6(inplace=False))
             ]))
 
@@ -526,13 +534,13 @@ class MBInvertedConvLayer(MyModule):
 
         self.depth_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(feature_dim, feature_dim, kernel_size, stride, pad, groups=feature_dim, bias=False)),
-            ('bn', nn.BatchNorm2d(feature_dim)),
+            ('bn', nn.BatchNorm2d(feature_dim, affine=affine)),
             ('act', nn.ReLU6(inplace=False))
         ]))
 
         self.point_conv = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(feature_dim, out_channels, 1, 1, 0, bias=False)),
-            ('bn', nn.BatchNorm2d(out_channels)),
+            ('bn', nn.BatchNorm2d(out_channels, affine=affine)),
         ]))
     def forward(self, x):
         if self.inverted_bottleneck:
