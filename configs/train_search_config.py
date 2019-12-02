@@ -16,6 +16,7 @@ def obtain_train_search_args():
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--search_space', type=str, default='autodeeplab', choices=['autodeeplab', 'proxyless'])
     # for visdom
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
@@ -86,7 +87,11 @@ def obtain_train_search_args():
     parser.add_argument('--arch_init_type', type=str, default='normal', choices=['normal', 'uniform'])
     parser.add_argument('--arch_init_ratio', type=float, default=1e-3)
     parser.add_argument('--arch_optimizer_type', type=str, default='adam', choices=['sgd', 'adam'])
-    parser.add_argument('--arch_lr', type=float, default=3e-3) # todo, pay attention, change into 3e-3 according to AutoDeeplab
+
+    # should be 3e-3 or 3e-4
+    parser.add_argument('--arch_lr', type=float, default=3e-4) # todo, pay attention, change into 3e-3 according to AutoDeeplab
+
+
     parser.add_argument('--arch_adam_beta1', type=float, default=0.5) # arch_optim_param1
     parser.add_argument('--arch_adam_beta2', type=float, default=0.999) # arch_optim_param2
     parser.add_argument('--arch_adam_eps', type=float, default=1e-8) # arch_optim_param3

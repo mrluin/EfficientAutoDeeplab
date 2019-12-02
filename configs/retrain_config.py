@@ -16,6 +16,7 @@ def obtain_retrain_args():
     parser.add_argument('--gpu_ids', type=int, default=0)
     parser.add_argument('--random_seed', type=int, default=1)
     parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--search_space', type=str, choices=['autodeeplab', 'proxyless'])
     # for visdom
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)

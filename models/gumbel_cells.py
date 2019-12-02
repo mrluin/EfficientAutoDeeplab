@@ -16,6 +16,23 @@ from modules.my_modules import MyModule
 __all__ = ['build_candidate_ops', 'GumbelCell', 'MixedOp']
 
 
+search_space_dict = {
+    'autodeeplab':[
+        'none'        , 'max_pool_3x3',
+        'Identity'    , 'avg_pool_3x3',
+        'sep_conv_3x3', 'sep_conv_5x5',
+        'dil_conv_3x3', 'dil_conv_5x5'
+    ],
+    'proxyless':[
+        '3x3_MBConv3', '3x3_MBConv6',
+        '5x5_MBConv3', '5x5_MBConv6',
+        '7x7_MBConv3', '7x7_MBConv6',
+        'Zero',  # 'Identity'
+    ]
+}
+
+
+
 def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order, affine=True):
 
     # learnable affine parameter is turn off in search phase.
@@ -23,7 +40,8 @@ def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_ord
     if candiate_ops is None:
         raise ValueError('Please specify a candidate set')
 
-    # None zero layer
+    # None zero  layer
+    # Identity   skip-connection
     name2ops = {
         'Identity': lambda inc, outc, s, affine: Identity(inc, outc, ops_order=ops_order, affine=affine),
         'Zero'    : lambda inc, outc, s        : Zero(s),
@@ -92,7 +110,7 @@ class MixedOp(MyModule):
 class GumbelCell(MyModule):
     def __init__(self, layer,
                  filter_multiplier, block_multiplier, steps,
-                 prev_prev_scale, prev_scale, scale, conv_candidates,
+                 prev_prev_scale, prev_scale, scale, search_space,
                  affine=True):
         super(GumbelCell, self).__init__()
 
@@ -120,7 +138,10 @@ class GumbelCell(MyModule):
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
         self.scale = scale
-        self.conv_candidates = conv_candidates
+
+        self.search_space = search_space
+        self.conv_candidates = search_space_dict[self.search_space]
+        #self.conv_candidates = conv_candidates
 
         self.prev_prev_scale = prev_prev_scale
         self.prev_scale = prev_scale
@@ -163,23 +184,40 @@ class GumbelCell(MyModule):
         # todo, new attribute nn.ModuleDict()
         self.ops = nn.ModuleDict()
         # i::node_index, j::previous_node_index
-        for i in range(2, self.total_nodes):
-            for j in range(i):
-                edge_str = '{:}<-{:}'.format(i, j)
-                if j == 0 and self.prev_prev_scale is None: # for prev_prev_cell
-                    mobile_inverted_conv = None
-                    shortcut = None
-                else:
-                    mobile_inverted_conv = MixedOp(
-                        build_candidate_ops(self.conv_candidates,
-                        in_channels=self.outc, out_channels=self.outc, stride=1,
-                        ops_order='act_weight_bn', affine=self.affine)) # normal MixedOp, ModuleList with weight
-                    shortcut = Identity(self.outc, self.outc)
-                if mobile_inverted_conv is None and shortcut is None:
-                    inverted_residual_block = None
-                else:
-                    inverted_residual_block = MobileInvertedResidualBlock(mobile_inverted_conv, shortcut)
-                self.ops[edge_str] = inverted_residual_block
+        if self.search_space == 'proxyless':
+            for i in range(2, self.total_nodes):
+                for j in range(i):
+                    edge_str = '{:}<-{:}'.format(i, j)
+                    if j == 0 and self.prev_prev_scale is None:  # for prev_prev_cell
+                        mobile_inverted_conv = None
+                        shortcut = None
+                    else:
+                        mobile_inverted_conv = MixedOp(
+                            build_candidate_ops(self.conv_candidates,
+                                                in_channels=self.outc, out_channels=self.outc, stride=1,
+                                                ops_order='act_weight_bn',
+                                                affine=self.affine))  # normal MixedOp, ModuleList with weight
+                        shortcut = Identity(self.outc, self.outc)
+                    if mobile_inverted_conv is None and shortcut is None:
+                        inverted_residual_block = None
+                    else:
+                        inverted_residual_block = MobileInvertedResidualBlock(mobile_inverted_conv, shortcut)
+                    self.ops[edge_str] = inverted_residual_block
+        elif self.search_space == 'autodeeplab':
+            for i in range(2, self.total_nodes):
+                for j in range(i):
+                    edge_str = '{:}<-{:}'.format(i, j)
+                    if j == 0 and self.prev_prev_scale is None:
+                        op = None
+                    else:
+                        op = MixedOp(
+                            build_candidate_ops(self.conv_candidates,
+                                                in_channels=self.outc, out_channels=self.outc, stride=1,
+                                                ops_order='act_weight_bn', affine=self.affine,))
+                    self.ops[edge_str] = op
+        else:
+            raise ValueError('search space {:} is not supported'.format(self.search_space))
+
 
         self.finalconv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
 

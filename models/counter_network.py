@@ -19,20 +19,22 @@ class CounterMBConvNet(MyNetwork):
         super(CounterMBConvNet, self).__init__()
         self.nb_classes = nb_classes
 
+        # three init stems
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(32)),
             ('relu', nn.ReLU(inplace=True))
         ]))
+        # remove 'relu' for self.stem1 # ('relu', nn.ReLU(inplace=True))
         self.stem1 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(32)),
-            ('relu', nn.ReLU(inplace=True))
         ]))
+        # change the order of the stem2
         self.stem2 = nn.Sequential(OrderedDict([
+            ('relu', nn.ReLU(inplace=True)),
             ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(64)),
-            ('relu', nn.ReLU(inplace=True))
         ]))
 
         '''

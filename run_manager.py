@@ -16,6 +16,7 @@ from utils.logger import time_string, save_checkpoint
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
 from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
+from models.gumbel_cells import search_space_dict
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -34,7 +35,8 @@ class RunConfig:
                  validation_freq, train_print_freq, save_ckpt_freq, monitor,
                  #print_arch_param_step_freq,
                  use_unbalanced_weights,
-                 conv_candidates,
+                 search_space,
+                 #conv_candidates,
                  actual_path = None, cell_genotypes= None,
                  **kwargs):
 
@@ -86,7 +88,8 @@ class RunConfig:
 
         self.use_unbalanced_weights = use_unbalanced_weights
 
-        self.conv_candidates = conv_candidates
+        self.search_space = search_space
+        self.conv_candidates = search_space_dict[self.search_space]
 
         self.actual_path = actual_path
         self.cell_genotypes = cell_genotypes

@@ -13,7 +13,7 @@ from utils.common import set_manual_seed, time_for_file, save_configs
 from run_manager import RunConfig, RunManager
 from utils.logger import prepare_logger, display_all_families_information
 from utils.visdom_utils import visdomer
-
+from models.gumbel_cells import search_space_dict
 
 def main(args):
     assert torch.cuda.is_available(), 'CUDA is not available'
@@ -70,12 +70,26 @@ def main(args):
         'epochs': args.epochs,
         'class_num': args.nb_classes,
     }
-    args.conv_candidates = [
-        '3x3_MBConv3', '3x3_MBConv6',
-        '5x5_MBConv3', '5x5_MBConv6',
-        '7x7_MBConv3', '7x7_MBConv6',
-        'Zero', #'Identity'
-    ]
+    # TODO: get rid of this block, search space is controled in search_space_dict in gumbel_cell.py
+    '''
+    if args.search_space == 'autodeeplab':
+        args.conv_candidates = [
+            'none'        , 'max_pool_3x3',
+            'Identity'    , 'avg_pool_3x3',
+            'sep_conv_3x3', 'sep_conv_5x5',
+            'dil_conv_3x3', 'dil_conv_5x5'
+        ]
+    elif args.search_space == 'proxyless':
+        args.conv_candidates = [
+            '3x3_MBConv3', '3x3_MBConv6',
+            '5x5_MBConv3', '5x5_MBConv6',
+            '7x7_MBConv3', '7x7_MBConv6',
+            'Zero',  # 'Identity'
+        ]
+    else:
+        raise ValueError('search_space name : {:} is not supported'.format(args.search_space))
+        '''
+    conv_candidates = search_space_dict[args.search_space]
     # create run_config
     run_config = RunConfig(**args.__dict__)
     save_configs(run_config.config, None, args.path, 'retrain')
@@ -97,7 +111,7 @@ def main(args):
             xlist = []
             for edge_genotype in genotype:
                 for (node_str, select_index) in edge_genotype:
-                    xlist.append((node_str, args.conv_candidates[select_index]))
+                    xlist.append((node_str, conv_candidates[select_index]))
             new_genotypes.append((_index, xlist))
         log_str = 'Obtained actual_path and cell_genotypes:\n' \
                   'actual_path: {:}\n' \
@@ -106,7 +120,7 @@ def main(args):
             log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
         logger.log(log_str, mode='info')
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
-                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.conv_candidates)
+                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space)
         retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
         display_all_families_information(args, 'retrain', retrain_run_manager, logger)
 
@@ -131,7 +145,7 @@ def main(args):
             'checkpoint file should includes model state_dict in testing phase. please re-confirm'
         actual_path, cell_genotypes = checkpoint['actual_path'], checkpoint['cell_genotypes']
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
-                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.conv_candidates)
+                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space)
         normal_network.load_state_dict(checkpoint['state_dict'])
         test_manager = RunManager(args.path, normal_network, logger, run_config, vis=None, out_log=True)
         display_all_families_information(args, 'retrain', test_manager, logger)

@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from models.gumbel_cells import GumbelCell
+from models.gumbel_cells import GumbelCell, search_space_dict
 from modules.my_modules import MyNetwork
 from modules.operations import ASPP
 from collections import OrderedDict
@@ -17,12 +17,13 @@ from collections import OrderedDict
 from utils.common import get_pfeatures, detect_inputs_shape, append_scale_list, get_prev_c, get_cell_index, \
     detect_invalid_index, count_normal_conv_flop
 
+
 __all__ = ['GumbelAutoDeepLab']
 
 class GumbelAutoDeepLab(MyNetwork):
     def __init__(self,
                  filter_multiplier, block_multiplier, steps, nb_classes,
-                 nb_layers, bn_momentum, bn_eps, conv_candidates, logger):
+                 nb_layers, bn_momentum, bn_eps, search_space, logger):
         super(GumbelAutoDeepLab, self).__init__()
 
         self.filter_multiplier = filter_multiplier
@@ -30,26 +31,29 @@ class GumbelAutoDeepLab(MyNetwork):
         self.steps = steps
         self.nb_layers = nb_layers
         self.nb_classes = nb_classes
-        self.conv_candidates = conv_candidates
+        self.search_space = search_space
+        #self.conv_candidates = conv_candidates
         self.logger = logger
 
         self.cells = nn.ModuleList()
 
+        # TODO: modification in self.stem1 and self.stem2, to be consistent with the authors
         # three init stems
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(32)),
             ('relu', nn.ReLU(inplace=True))
         ]))
+        # remove 'relu' for self.stem1 # ('relu', nn.ReLU(inplace=True))
         self.stem1 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(32)),
-            ('relu', nn.ReLU(inplace=True))
         ]))
+        # change the order of the stem2
         self.stem2 = nn.Sequential(OrderedDict([
+            ('relu', nn.ReLU(inplace=True)),
             ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
             ('bn', nn.BatchNorm2d(64)),
-            ('relu', nn.ReLU(inplace=True))
         ]))
 
         # cells
@@ -59,22 +63,22 @@ class GumbelAutoDeepLab(MyNetwork):
         for i in range(self.nb_layers):
             if i == 0:
                 cell1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                   prev_prev_scale=None, prev_scale=prev_c, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                   prev_prev_scale=None, prev_scale=prev_c, scale=0, search_space=self.search_space, affine=False)
                 cell2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                   prev_prev_scale=None, prev_scale=prev_c, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                   prev_prev_scale=None, prev_scale=prev_c, scale=1, search_space=self.search_space, affine=False)
                 self.cells += [cell1]  # 0
                 self.cells += [cell2]  # 1
             elif i == 1:
                 cell1_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=prev_c, prev_scale=0, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=prev_c, prev_scale=0, scale=0, search_space=self.search_space, affine=False)
                 cell1_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=prev_c, prev_scale=1, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=prev_c, prev_scale=1, scale=0, search_space=self.search_space, affine=False)
                 cell2_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=0, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=0, scale=1, search_space=self.search_space, affine=False)
                 cell2_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=1, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=1, scale=1, search_space=self.search_space, affine=False)
                 cell3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                   prev_prev_scale=None, prev_scale=1, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                   prev_prev_scale=None, prev_scale=1, scale=2, search_space=self.search_space, affine=False)
                 self.cells += [cell1_1]
                 self.cells += [cell1_2]
                 self.cells += [cell2_1]
@@ -82,21 +86,21 @@ class GumbelAutoDeepLab(MyNetwork):
                 self.cells += [cell3]
             elif i == 2:
                 cell1_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=0, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=0, scale=0, csearch_space=self.search_space, affine=False)
                 cell1_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=1, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=1, scale=0, search_space=self.search_space, affine=False)
                 cell2_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=0, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=0, scale=1, search_space=self.search_space, affine=False)
                 cell2_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=1, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=1, scale=1, search_space=self.search_space, affine=False)
                 cell2_3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=2, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=2, scale=1, search_space=self.search_space, affine=False)
                 cell3_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=1, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=1, scale=2, search_space=self.search_space, affine=False)
                 cell3_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=2, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=2, scale=2, search_space=self.search_space, affine=False)
                 cell4 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                   prev_prev_scale=None, prev_scale=2, scale=3, conv_candidates=self.conv_candidates, affine=False)
+                                   prev_prev_scale=None, prev_scale=2, scale=3, search_space=self.search_space, affine=False)
                 self.cells += [cell1_1]
                 self.cells += [cell1_2]
                 self.cells += [cell2_1]
@@ -107,25 +111,25 @@ class GumbelAutoDeepLab(MyNetwork):
                 self.cells += [cell4]
             elif i == 3:
                 cell1_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=0, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=0, scale=0, search_space=self.search_space, affine=False)
                 cell1_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=1, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=1, scale=0, search_space=self.search_space, affine=False)
                 cell2_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=0, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=0, scale=1, search_space=self.search_space, affine=False)
                 cell2_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=1, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=1, scale=1, search_space=self.search_space, affine=False)
                 cell2_3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=2, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=2, scale=1, search_space=self.search_space, affine=False)
                 cell3_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=1, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=1, scale=2, search_space=self.search_space, affine=False)
                 cell3_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=2, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=2, scale=2, search_space=self.search_space, affine=False)
                 cell3_3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=3, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=3, scale=2, search_space=self.search_space, affine=False)
                 cell4_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=2, scale=3, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=2, scale=3, search_space=self.search_space, affine=False)
                 cell4_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=None, prev_scale=3, scale=3, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=None, prev_scale=3, scale=3, search_space=self.search_space, affine=False)
                 self.cells += [cell1_1]
                 self.cells += [cell1_2]
                 self.cells += [cell2_1]
@@ -138,25 +142,25 @@ class GumbelAutoDeepLab(MyNetwork):
                 self.cells += [cell4_2]
             else:
                 cell1_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=0, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=0, scale=0, search_space=self.search_space, affine=False)
                 cell1_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=0, prev_scale=1, scale=0, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=0, prev_scale=1, scale=0, search_space=self.search_space, affine=False)
                 cell2_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=0, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=0, scale=1, search_space=self.search_space, affine=False)
                 cell2_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=1, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=1, scale=1, search_space=self.search_space, affine=False)
                 cell2_3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=1, prev_scale=2, scale=1, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=1, prev_scale=2, scale=1, search_space=self.search_space, affine=False)
                 cell3_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=1, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=1, scale=2, search_space=self.search_space, affine=False)
                 cell3_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=2, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=2, scale=2, search_space=self.search_space, affine=False)
                 cell3_3 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=2, prev_scale=3, scale=2, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=2, prev_scale=3, scale=2, search_space=self.search_space, affine=False)
                 cell4_1 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=3, prev_scale=2, scale=3, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=3, prev_scale=2, scale=3, search_space=self.search_space, affine=False)
                 cell4_2 = GumbelCell(i, self.filter_multiplier, self.block_multiplier, self.steps,
-                                     prev_prev_scale=3, prev_scale=3, scale=3, conv_candidates=self.conv_candidates, affine=False)
+                                     prev_prev_scale=3, prev_scale=3, scale=3, search_space=self.search_space, affine=False)
                 self.cells += [cell1_1]
                 self.cells += [cell1_2]
                 self.cells += [cell2_1]
@@ -175,10 +179,10 @@ class GumbelAutoDeepLab(MyNetwork):
         scale32_outc = int(self.filter_multiplier * self.block_multiplier * 32 / 4)
 
         # dilation as 96/scale
-        self.aspp4 = ASPP(scale4_outc, self.nb_classes, 24)
-        self.aspp8 = ASPP(scale8_outc, self.nb_classes, 12)
-        self.aspp16 = ASPP(scale16_outc, self.nb_classes, 6)
-        self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3)
+        self.aspp4 = ASPP(scale4_outc, self.nb_classes, 24, affine=False)
+        self.aspp8 = ASPP(scale8_outc, self.nb_classes, 12, affine=False)
+        self.aspp16 = ASPP(scale16_outc, self.nb_classes, 6, affine=False)
+        self.aspp32 = ASPP(scale32_outc, self.nb_classes, 3, affine=False)
 
         self.nb_cells = len(self.cells)
         # TODO: change initialization of arch_parameters into zero initialization following darts.

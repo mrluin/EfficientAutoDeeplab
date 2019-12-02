@@ -360,9 +360,12 @@ class FactorizedReduce(MyModule):
             self.bn = nn.BatchNorm2d(out_channels, affine=affine)
         self.conv_1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
         self.conv_2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, padding=0, bias=False)
+        self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
+
     def forward(self, x):
         x = self.act_func(x)
-        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
+        y = self.pad(x)
+        out = torch.cat([self.conv_1(x), self.conv_2(y[:, :, 1:, 1:])], dim=1)
         out = self.bn(out)
         return out
 
