@@ -7,7 +7,7 @@
 import os
 import torch
 import glob
-
+import random
 from models.gumbel_super_network import GumbelAutoDeepLab
 from run_manager import RunConfig
 from nas_manager import ArchSearchConfig, ArchSearchRunManager
@@ -75,27 +75,6 @@ def main(args):
         'epochs'           : args.epochs,
         'class_num'        : args.nb_classes,
     }
-    # TODO: get rid of this block, conv_candidates is set by search_space name in search_space_dict in gumbel_cells.py
-    '''
-    if args.search_space == 'autodeeplab':
-        # The search space of AutoDeeplab
-        args.conv_candidates = [
-            'none'        , 'max_pool_3x3',
-            'Identity'    , 'avg_pool_3x3',
-            'sep_conv_3x3', 'sep_conv_5x5',
-            'dil_conv_3x3', 'dil_conv_5x5'
-        ]
-    elif args.search_space == 'proxyless':
-        # The search space of ProxylessNAS
-        args.conv_candidates = [
-            '3x3_MBConv3', '3x3_MBConv6',
-            '5x5_MBConv3', '5x5_MBConv6',
-            '7x7_MBConv3', '7x7_MBConv6',
-            'Zero', #'Identity'
-        ]
-    else:
-        raise ValueError('search_space name : {:} is not supported'.format(args.search_space))
-        '''
     run_config = RunConfig( **args.__dict__ )
     # arch_optimizer_config
     if args.arch_optimizer_type == 'adam':
@@ -127,7 +106,7 @@ def main(args):
     # args.bn_momentum and args.bn_eps are not used
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
-        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger
+        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, authors=True
     )
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
@@ -187,5 +166,5 @@ def main(args):
 
 if __name__ == '__main__':
     args = obtain_train_search_args()
-    if args.random_seed is None or args.random_seed < 0: args.random_seed = torch.randint(1, 100000)
+    if args.random_seed is None or args.random_seed < 0: args.random_seed = random.randint(1, 100000)
     main(args)

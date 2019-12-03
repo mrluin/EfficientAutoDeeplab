@@ -180,12 +180,12 @@ def display_all_families_information(args, phase, manager, logger):
         log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.valid_loader), manager.run_manager.run_config.valid_loader.batch_size)
         log_str += 'Test  Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_manager.run_config.test_loader), manager.run_manager.run_config.test_loader.batch_size)
         log_str += '==================== OPTIMIZERS ====================\n'
-        log_str += 'weight_optimizer :: {:}\n'.format(manager.run_manager.optimizer)
-        log_str += 'arch_optimizer   :: {:}\n'.format(manager.arch_optimizer)
-        log_str += 'weight_scheduler :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
-        log_str += 'criterion       :: {:}\n'.format(manager.run_manager.criterion)
+        log_str += 'weight_optimizer  :: {:}\n'.format(manager.run_manager.optimizer)
+        log_str += 'arch_optimizer    :: {:}\n'.format(manager.arch_optimizer)
+        log_str += 'weight_scheduler  :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
+        log_str += 'criterion         :: {:}\n'.format(manager.run_manager.criterion)
         log_str += '==================== SearchSpace ====================\n'
-        log_str += str(args.conv_candidates) + '\n'
+        log_str += 'search_space      :: {:}\n'.format(args.search_space)
         log_str += '==================== SuperNetwork Config ====================\n'
         log_str += 'filter_multiplier :: {:}\n'.format(args.filter_multiplier)
         log_str += 'block_multiplier  :: {:}\n'.format(args.block_multiplier)
@@ -199,12 +199,12 @@ def display_all_families_information(args, phase, manager, logger):
         log_str += 'Valid Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.valid_loader), manager.run_config.valid_loader.batch_size)
         log_str += 'Test  Loader :: Len={:} batch_size={:}\n'.format(len(manager.run_config.test_loader), manager.run_config.test_loader.batch_size)
         log_str += '==================== OPTIMIZERS ====================\n'
-        log_str += 'weight_optimizer :: {:}\n'.format(manager.optimizer)
+        log_str += 'weight_optimizer  :: {:}\n'.format(manager.optimizer)
         #log_str += 'arch_optimizer   :: {:}\n'.format(manager.arch_optimizer)
-        log_str += 'weight_scheduler :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
-        log_str += 'criterion       :: {:}\n'.format(manager.criterion)
+        log_str += 'weight_scheduler  :: {:} T_max={:} eta_min={:}\n'.format(args.scheduler, args.T_max, args.eta_min)
+        log_str += 'criterion         :: {:}\n'.format(manager.criterion)
         log_str += '==================== SearchSpace ====================\n'
-        log_str += str(args.conv_candidates) + '\n'
+        log_str += 'search_space      :: {:}\n'.format(args.search_space)
         log_str += '==================== SuperNetwork Config ====================\n'
         log_str += 'filter_multiplier :: {:}\n'.format(args.filter_multiplier)
         log_str += 'block_multiplier  :: {:}\n'.format(args.block_multiplier)

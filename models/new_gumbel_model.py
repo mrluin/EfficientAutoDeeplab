@@ -12,80 +12,102 @@ from collections import OrderedDict
 from models.gumbel_super_network import GumbelAutoDeepLab
 from modules.my_modules import MyNetwork, MyModule
 from modules.operations import ASPP, FactorizedIncrease, ConvLayer, FactorizedReduce, MBInvertedConvLayer, Identity, \
-    Zero, SepConv, DilConv, MobileInvertedResidualBlock
+    Zero, SepConv, DilConv, MobileInvertedResidualBlock, DoubleFactorizedIncrease, DoubleFactorizedReduce
 from run_manager import RunConfig
 from utils.common import get_prev_c
-from models.gumbel_cells import build_candidate_ops, search_space_dict
-
+from models.gumbel_cells import build_candidate_ops, proxyless, autodeeplab,counter
 __all__ = ['NewGumbelCell', 'NewGumbelAutoDeeplab']
 
 class NewGumbelCell(MyModule):
     def __init__(self, layer, filter_multiplier, block_multiplier, steps,
-                 prev_prev_scale, prev_scale, scale, genotype, search_space, affine=True):
+                 scale, genotype, search_space, ppc=None, pc=None, affine=True):
         super(NewGumbelCell, self).__init__()
-        index2scale = {
-            -2: 1,
-            -1: 2,
+        self.index2scale = {
             0: 4,
             1: 8,
             2: 16,
             3: 32,
+        }
+        self.index2channels = {
+            0: 32,
+            1: 64,
+            2: 128,
+            3: 256,
         }
         self.total_nodes = 2 + steps
         self.layer = layer
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
         self.steps = steps
-        self.prev_prev_scale = prev_prev_scale
-        self.prev_scale = prev_scale
+        #self.prev_prev_scale = prev_prev_scale
+        #self.prev_scale = prev_scale
         self.scale = scale
         self.genotype = genotype
         self.search_space = search_space
-        self.conv_candidates = search_space_dict[self.search_space]
-
-        self.outc = int(self.filter_multiplier * self.block_multiplier * self.scale / 4)
-
-        # preprocess0 and preprocess1
-        if index2scale.get(self.prev_scale) is not None:
-            self.prev_c = int(self.filter_multiplier * self.block_multiplier * index2scale[self.prev_scale] / 4)
-            if self.prev_scale == self.scale + 1:  # up
-                self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc)
-            elif self.prev_scale == self.scale:  # same
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
-            elif self.prev_scale == self.scale - 1:  # down
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
-            else:
-                raise ValueError('invalid relation between prev_scale and current scale')
+        if self.search_space == 'autodeeplab':
+            self.conv_candidates = autodeeplab
+        elif self.search_space == 'proxyless':
+            self.conv_candidates = proxyless
+        elif self.search_space == 'counter':
+            self.conv_candidates = counter
         else:
-            self.prev_c = self.prev_scale
-            if scale == 0:
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
-            elif self.scale == 1:
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
-            else:
-                raise ValueError('invalid scale value')
-        if self.prev_prev_scale is None:
-            self.prev_prev_c = None
-            self.preprocess0 = None
+            raise ValueError('search space {:} is not support'.format(self.search_space))
+        #self.conv_candidates = search_space_dict[self.search_space]
+        #self.outc = int(self.filter_multiplier * self.block_multiplier * self.scale / 4)
+        self.outc = self.index2channels[self.scale]
+
+        if self.scale == 0:
+            # only has same and up link for prev_feature
+            # only has same, up, and double up link for prev_prev_feature
+            self.same_link_prev           = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev             = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev_prev      = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev        = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_up_link_prev_prev = DoubleFactorizedIncrease(int(self.outc*4) if ppc is None else ppc, self.outc, affine=affine)
+            # has down for prev_prev_feature in layer-0
+            self.down_link_prev_prev      = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 1:
+            # has down, same, up link for prev_feature
+            # has down, same, up, and double up link for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev               = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev          = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_up_link_prev_prev   = DoubleFactorizedIncrease(int(self.outc*4) if ppc is None else ppc, self.outc, affine=affine)
+            # has double down link for prev_prev_feature
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 2:
+            # has down, same, up link for prev_feature
+            # has ddown, same, up link for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev               = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev          = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 3:
+            # has down, same link for prev_feature
+            # has ddown, down, and same for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
         else:
-            if index2scale.get(self.prev_prev_scale) is None:  # fixed
-                self.prev_prev_c = self.prev_prev_scale
-            else:
-                self.prev_prev_c = int(
-                    self.filter_multiplier * self.block_multiplier * index2scale[self.prev_prev_scale] / 4)
-            # TODO: issue in scale of prev_prev_c, it is considered as next_scale by default
-            self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False)
+            raise ValueError('invalid scale value {:}'.format(self.scale))
 
         self.ops = nn.ModuleDict()
-
         # fix issue of construct new_cell of proxyless search space
-        if self.search_space == 'autodeeplab':
+        if self.search_space == 'proxyless':
             for node_str, select_op_index in self.genotype:
                 conv_op = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
                                             stride=1, ops_order='act_weight_bn', affine=affine)
                 shortcut = Identity(self.outc, self.outc)
                 self.ops[node_str] = MobileInvertedResidualBlock(conv_op, shortcut)
-        elif self.search_space == 'proxyless':
+        elif self.search_space == 'autodeeplab':
             for node_str, select_op_index in self.genotype:
                 # operation name -> conv_candidates
                 operation = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
@@ -97,12 +119,37 @@ class NewGumbelCell(MyModule):
 
     def forward(self, s0, s1):
 
-        # node_str and operation_name in self.genotype
-        # match node_str, perform related operation
-        if s0 is not None:
-            s0 = self.preprocess0(s0)
-        else: assert self.prerpocess0 is None, 'inconsistency in s0 and preprocess0'
-        s1 = self.preprocess1(s1)
+        s0_size = s0[0].size()[2]
+        s1_size = s1[0].size()[2]
+        # TODO: change 512 to argument
+        current_size = 512 / self.index2scale[self.scale]
+        # print(s0_size, s1_size)
+        # print(current_size)
+
+        if s0_size / current_size == 4.:  # double down
+            s0 = self.double_down_link_prev_prev(s0)
+        elif s0_size / current_size == 2.:  # down
+            s0 = self.down_link_prev_prev(s0)
+        elif s0_size / current_size == 1.:  # same
+            s0 = self.same_link_prev_prev(s0)
+        elif s0_size / current_size == 1 / 2:  # up
+            s0 = self.up_link_prev_prev(s0)
+        elif s0_size / current_size == 1 / 4:  # double up
+            s0 = self.double_up_link_prev_prev(s0)
+        else:
+            raise ValueError('invalid size relation s0_size / current_size = {:} in gdas_forward pass'.format(
+                s0_size / current_size))
+
+        if s1_size / current_size == 2.:  # down
+            s1 = self.down_link_prev(s1)
+        elif s1_size / current_size == 1.:  # same
+            s1 = self.same_link_prev(s1)
+        elif s1_size / current_size == 1 / 2:  # up
+            s1 = self.up_link_prev(s1)
+        else:
+            raise ValueError('invalid size relation s1_size / current_size = {:} in gdas_forward pass'.format(
+                s1_size / current_size))
+
         states = [s0, s1] # including None state
 
         for i in range(2, self.total_nodes):
@@ -112,9 +159,8 @@ class NewGumbelCell(MyModule):
                 if node_str in self.genotype[:, 0]:
                     # the current edge is selected
                     related_hidden = states[j]
-                    if related_hidden is None:
-                        assert j == 0, 'inconsistency in None hidden and node index'
-                        continue
+                    # forward :: MBConvResidualBlock -> MixedOp -> single_forward
+                    # forward :: normal ConvBlock -> simple forward
                     new_state = self.ops[node_str](related_hidden)
                     new_states.append(new_state)
             s = sum(new_states)
@@ -126,7 +172,7 @@ class NewGumbelCell(MyModule):
 
 class NewGumbelAutoDeeplab(MyNetwork):
     def __init__(self, nb_layers, filter_multiplier, block_multiplier, steps, nb_classes,
-                 actual_path, cell_genotypes, search_space):
+                 actual_path, cell_genotypes, search_space, affine=True):
         super(NewGumbelAutoDeeplab, self).__init__()
 
         self.nb_layers = nb_layers
@@ -158,47 +204,29 @@ class NewGumbelAutoDeeplab(MyNetwork):
         self.cells = nn.ModuleList()
         prev_prev_c = 32
         prev_c = 64
-        inter_scale = [-1, 0]
         for layer in range(self.nb_layers):
-            next_scale = self.actual_path[layer]
+            next_scale = int(self.actual_path[layer])
             cell_genotype = self.cell_genotypes[layer] # next_scale cell genotype
-            if layer == 0:
-                if next_scale == 0 or next_scale == 1:
-                    prev_prev_scale = None
-                    prev_scale = prev_c
-                else: raise ValueError('invalid scale value in layer 0')
-            elif layer == 1:
-                if next_scale == 0:
-                    prev_prev_scale = prev_c
-                    prev_scale = inter_scale[-1]
-                else:
-                    if next_scale == inter_scale[-2]: prev_prev_scale = inter_scale[-2]
-                    else: prev_prev_scale = None
-                    prev_scale = inter_scale[-1]
-            else:
-                if next_scale == inter_scale[-2]: prev_prev_scale = inter_scale[-2]
-                else: prev_prev_scale = None
-                prev_scale = inter_scale[-1]
-            self.cells.append(NewGumbelCell(layer, self.filter_multiplier, self.block_multiplier,
-                                            self.steps, prev_prev_scale, prev_scale, next_scale, cell_genotype, search_space))
-            inter_scale.pop(0)
-            inter_scale.append(next_scale)
+            cell = NewGumbelCell(layer, filter_multiplier, block_multiplier, steps, next_scale,
+                                 cell_genotype, search_space, ppc=prev_prev_c, pc=prev_c, affine=affine)
+            self.cells.append(cell)
 
         self.out0 = int(self.filter_multiplier * self.block_multiplier * 4 / 4)
         self.out1 = int(self.filter_multiplier * self.block_multiplier * 8 / 4)
         self.out2 = int(self.filter_multiplier * self.block_multiplier * 16 / 4)
         self.out3 = int(self.filter_multiplier * self.block_multiplier * 32 / 4)
-        last_scale = self.actual_path[-1]
+        last_scale = int(self.actual_path[-1])
         if last_scale == 0:
-            self.aspp = ASPP(self.out0 ,self.nb_classes, 24, affine=True)
+            self.aspp = ASPP(self.out0 ,self.nb_classes, 24, affine=affine)
         elif last_scale == 1:
-            self.aspp = ASPP(self.out1, self.nb_classes, 12, affine=True)
+            self.aspp = ASPP(self.out1, self.nb_classes, 12, affine=affine)
         elif last_scale == 2:
-            self.aspp = ASPP(self.out2, self.nb_classes, 6, affine=True)
+            self.aspp = ASPP(self.out2, self.nb_classes, 6, affine=affine)
         elif last_scale == 3:
-            self.aspp = ASPP(self.out3, self.nb_classes, 3, affine=True)
+            self.aspp = ASPP(self.out3, self.nb_classes, 3, affine=affine)
         else:
             raise ValueError('invalid last_scale value {}'.format(last_scale))
+
     def forward(self, x):
 
         size = x.size()[2:]
@@ -206,20 +234,19 @@ class NewGumbelAutoDeeplab(MyNetwork):
         inter_features = []
         x = self.stem0(x)
         x = self.stem1(x)
-        inter_features.append((-1, None))
+        inter_features.append(x)
         x = self.stem2(x)
-        inter_features.append((0, x))
+        inter_features.append(x)
 
         for layer in range(self.nb_layers):
-            next_scale = self.actual_path[layer]
-            prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
+            #next_scale = int(self.actual_path[layer])
+            prev_prev_feature, prev_feature = inter_features[-2], inter_features[-1]
             _result = self.cells[layer](prev_prev_feature, prev_feature)
             inter_features.pop(0)
-            inter_features.append((next_scale, _result))
+            inter_features.append(_result)
 
         _result = self.aspp(inter_features[-1])
         return F.interpolate(_result, size=size, mode='bilinear', align_corners=True)
-
 
 def get_new_model(super_network, run_config: RunConfig):
     nb_layers = run_config.nb_layers

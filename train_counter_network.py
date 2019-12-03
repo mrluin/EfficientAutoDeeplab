@@ -5,6 +5,8 @@
 '''
 
 import os
+import random
+
 import torch
 import glob
 
@@ -118,7 +120,7 @@ def main(args):
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.conv_candidates, logger
     )
     '''
-    super_network = CounterMBConvNet(2)
+    super_network = CounterMBConvNet(2, search_space=args.search_space)
     train_manager = RunManager(args.path, super_network, logger, run_config, vis=vis, out_log=True)
     # train search phase
     train_manager.train()
@@ -126,4 +128,5 @@ def main(args):
 
 if __name__ == '__main__':
     args = obtain_train_search_args()
+    if args.random_seed is None or args.random_seed < 0: args.random_seed = random.randint(1, 100000)
     main(args)

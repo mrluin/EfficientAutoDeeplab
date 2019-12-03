@@ -16,21 +16,21 @@ from modules.my_modules import MyModule
 __all__ = ['build_candidate_ops', 'GumbelCell', 'MixedOp']
 
 
-search_space_dict = {
-    'autodeeplab':[
-        'none'        , 'max_pool_3x3',
-        'Identity'    , 'avg_pool_3x3',
-        'sep_conv_3x3', 'sep_conv_5x5',
-        'dil_conv_3x3', 'dil_conv_5x5'
-    ],
-    'proxyless':[
-        '3x3_MBConv3', '3x3_MBConv6',
-        '5x5_MBConv3', '5x5_MBConv6',
-        '7x7_MBConv3', '7x7_MBConv6',
-        'Zero',  # 'Identity'
-    ]
-}
-
+autodeeplab = [
+    'Zero'          , 'Identity'      ,
+    #'3x3_MaxPooling', '3x3_AvgPooling',
+    '3x3_DWConv'    , '5x5_DWConv'    ,
+    '3x3_DilConv'   , '5x5_DilConv'
+]
+proxyless = [
+    '3x3_MBConv3', '3x3_MBConv6',
+    '5x5_MBConv3', '5x5_MBConv6',
+    '7x7_MBConv3', '7x7_MBConv6',
+    'Zero',  # 'Identity'
+]
+counter = [
+    '3x3_DilConv'
+]
 
 
 def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order, affine=True):
@@ -44,35 +44,35 @@ def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_ord
     # Identity   skip-connection
     name2ops = {
         'Identity': lambda inc, outc, s, affine: Identity(inc, outc, ops_order=ops_order, affine=affine),
-        'Zero'    : lambda inc, outc, s        : Zero(s),
+        'Zero'    : lambda inc, outc, s, affine: Zero(s),
     }
     # add MBConv Layers
     name2ops.update({
-        '3x3_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 1, affine),
-        '3x3_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 2, affine),
-        '3x3_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 3, affine),
-        '3x3_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 4, affine),
-        '3x3_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 5, affine),
-        '3x3_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 6, affine),
-        '5x5_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 1, affine),
-        '5x5_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 2, affine),
-        '5x5_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 3, affine),
-        '5x5_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 4, affine),
-        '5x5_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 5, affine),
-        '5x5_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 6, affine),
-        '7x7_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 1, affine),
-        '7x7_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 2, affine),
-        '7x7_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 3, affine),
-        '7x7_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 4, affine),
-        '7x7_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 5, affine),
-        '7x7_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 6, affine),
+        '3x3_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 1, affine=affine),
+        '3x3_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 2, affine=affine),
+        '3x3_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 3, affine=affine),
+        '3x3_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 4, affine=affine),
+        '3x3_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 5, affine=affine),
+        '3x3_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 3, s, 6, affine=affine),
+        '5x5_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 1, affine=affine),
+        '5x5_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 2, affine=affine),
+        '5x5_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 3, affine=affine),
+        '5x5_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 4, affine=affine),
+        '5x5_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 5, affine=affine),
+        '5x5_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 5, s, 6, affine=affine),
+        '7x7_MBConv1': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 1, affine=affine),
+        '7x7_MBConv2': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 2, affine=affine),
+        '7x7_MBConv3': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 3, affine=affine),
+        '7x7_MBConv4': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 4, affine=affine),
+        '7x7_MBConv5': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 5, affine=affine),
+        '7x7_MBConv6': lambda inc, outc, s, affine: MBInvertedConvLayer(inc, outc, 7, s, 6, affine=affine),
         #===========================================================================
-        '3x3_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 3, s, affine),
-        '5x5_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 5, s, affine),
-        '3x3_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 3, s, 2, affine),
-        '5x5_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 5, s, 2, affine),
-        '3x3_AvgPooling': lambda inc, outc, s, : nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
-        '3x3_MaxPooling': lambda inc, outc, s, : nn.MaxPool2d(3, stride=s, padding=1),
+        '3x3_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 3, s, affine=affine),
+        '5x5_DWConv'    : lambda inc, outc, s, affine: SepConv(inc, outc, 5, s, affine=affine),
+        '3x3_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 3, s, 2, affine=affine),
+        '5x5_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 5, s, 2, affine=affine),
+        '3x3_AvgPooling': lambda inc, outc, s, affine: nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
+        '3x3_MaxPooling': lambda inc, outc, s, affine: nn.MaxPool2d(3, stride=s, padding=1),
     })
     return [
         name2ops[name](in_channels, out_channels, stride, affine) for name in candiate_ops
@@ -86,6 +86,10 @@ class MixedOp(MyModule):
 
     def forward(self, x, weight):
         return sum(w * op(x) for w, op in zip(weight, self.candidate_ops))
+
+    def forward_single(self, x):
+        assert len(self.candidate_ops) == 1, 'invalid len of self.candidate_ops in single_operation forward'
+        return sum(op(x) for op in self.candidate_ops)
 
     def forward_gdas(self, x, weight, argmax):
         return sum(weight[_ie] * op(x) if _ie == argmax else weight[_ie] for _ie, op in enumerate(self.candidate_ops))
@@ -107,31 +111,37 @@ class MixedOp(MyModule):
         raise NotImplementedError
 
 
+'''
+# GumbelCell is used to search
+# NewGumbelCell is used to construct derived network.
+'''
+
 class GumbelCell(MyModule):
     def __init__(self, layer,
-                 filter_multiplier, block_multiplier, steps,
-                 prev_prev_scale, prev_scale, scale, search_space,
-                 affine=True):
+                 filter_multiplier, block_multiplier, steps, scale, search_space,
+                 ppc=None, pc=None, affine=True):
         super(GumbelCell, self).__init__()
 
         # todo add new attribute, affine parameter for bn, making searching phase more stable
-        # set True by default
-        # set False in searching phase
         self.affine = affine
-
         # todo add new attribute, for debugging
         self.layer = layer
-
-        index2scale = {
-            -2: 1,
-            -1: 2,
+        # change index2scale to index2channel
+        # index -2 and -1 is set by default
+        # index 0, 1, 2, 3, 4 are calculated by int(filter_multiplier * block_multiplier * scale /4)
+        self.index2scale = {
             0: 4,
             1: 8,
             2: 16,
             3: 32,
         }
+        self.index2channel = {
+            0: 32,
+            1: 64,
+            2: 128,
+            3: 256,
+        }
         self.steps = steps # nodes within each cell
-
         # todo add new attribute
         self.total_nodes = 2 + self.steps # exclude output node
 
@@ -140,47 +150,117 @@ class GumbelCell(MyModule):
         self.scale = scale
 
         self.search_space = search_space
-        self.conv_candidates = search_space_dict[self.search_space]
+        if self.search_space == 'autodeeplab':
+            self.conv_candidates = autodeeplab
+        elif self.search_space == 'proxyless':
+            self.conv_candidates = proxyless
+        elif self.search_space == 'counter': # used to debug
+            self.conv_candidates = counter
+        else:
+            raise ValueError('search space {:} is not support'.format(self.search_space))
         #self.conv_candidates = conv_candidates
+        #self.prev_prev_scale = prev_prev_scale
+        #self.prev_scale = prev_scale
+        self.outc = self.index2channel[self.scale]
 
-        self.prev_prev_scale = prev_prev_scale
-        self.prev_scale = prev_scale
+        # TODO: do not need prev_prev_scale and prev_scale any more
+        # 1. down same up link for prev_feature
+        # 2. down same up, double down, and double up link for prev_prev_feature
+        # 3. all the link operations are defined in __init__
+        # 4. justification in forward() pass, and call the related link operation
+        # 5. set prev_feature_channels and prev_prev_feature_channels specifically for output of stem0 and stem1
 
-        self.outc = int(self.filter_multiplier * self.block_multiplier * index2scale[self.scale] / 4)
-
-        # preprocess0 and preprocess1
-        if index2scale.get(self.prev_scale) is not None:
-            self.prev_c = int(self.filter_multiplier * self.block_multiplier * index2scale[self.prev_scale] / 4)
-            if self.prev_scale == self.scale + 1:  # up
-                self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc)
-            elif self.prev_scale == self.scale:  # same
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
-            elif self.prev_scale == self.scale - 1:  # down
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
-            else:
-                raise ValueError('invalid relation between prev_scale and current scale')
+        # set types of link operation according to self.scale
+        if self.scale == 0:
+            # only has same and up link for prev_feature
+            # only has same, up, and double up link for prev_prev_feature
+            self.same_link_prev           = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev             = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev_prev      = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev        = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_up_link_prev_prev = DoubleFactorizedIncrease(int(self.outc*4) if ppc is None else ppc, self.outc, affine=affine)
+            # has down for prev_prev_feature in layer-0
+            self.down_link_prev_prev      = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 1:
+            # has down, same, up link for prev_feature
+            # has down, same, up, and double up link for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev               = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev          = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_up_link_prev_prev   = DoubleFactorizedIncrease(int(self.outc*4) if ppc is None else ppc, self.outc, affine=affine)
+            # has double down link for prev_prev_feature
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 2:
+            # has down, same, up link for prev_feature
+            # has ddown, same, up link for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev               = FactorizedIncrease(int(self.outc*2) if pc is None else pc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
+            self.up_link_prev_prev          = FactorizedIncrease(int(self.outc*2) if ppc is None else ppc, self.outc, affine=affine)
+        elif self.scale == 3:
+            # has down, same link for prev_feature
+            # has ddown, down, and same for prev_prev_feature
+            self.down_link_prev             = FactorizedReduce(int(self.outc/2) if pc is None else pc, self.outc, affine=affine)
+            self.same_link_prev             = ConvLayer(self.outc if pc is None else pc, self.outc, 1, 1, False, affine=affine)
+            self.double_down_link_prev_prev = DoubleFactorizedReduce(int(self.outc/4) if ppc is None else ppc, self.outc, affine=affine)
+            self.down_link_prev_prev        = FactorizedReduce(int(self.outc/2) if ppc is None else ppc, self.outc, affine=affine)
+            self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
         else:
-            self.prev_c = self.prev_scale # fixed
-            if self.scale == 0:
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False)
-            elif self.scale == 1:
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc)
-            else:
-                raise ValueError('invalid scale value')
+            raise ValueError('invalid scale value {:}'.format(self.scale))
+        '''
+        # prev_prev_c :: stem0 output 32  :: used in level4-node1 / level8-node1
+        # prev_c      :: stem1 output 64  :: used in level4-node1 / level4-node2 / level8-node1 / level8-node2 / level16-node1
+        # preprocess0 does not have None case
+        if index2channel.get(self.prev_prev_scale) is not None: # is not the output of stem0 and stem1
+            self.prev_prev_c = index2channel[self.prev_prev_scale]
+            if self.prev_prev_scale == self.scale: # same
+                self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False, affine=affine)
+            elif self.prev_prev_scale == self.scale -1: # down
+                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            elif self.prev_prev_scale == self.scale - 2: # dfr
+                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            else: raise ValueError('relation error between prev_prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
 
-        if self.prev_prev_scale is None:
-            self.prev_prev_c = None
-            self.preprocess0 = None
         else:
-            if index2scale.get(self.prev_prev_scale) is None: # fixed
-                self.prev_prev_c = self.prev_prev_scale
-            else:
-                self.prev_prev_c = int(self.filter_multiplier * self.block_multiplier * index2scale[self.prev_prev_scale] / 4)
-            # TODO: issue in scale of prev_prev_c, it is considered as next_scale by default
-            self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False)
-
-
-
+            # output of stem0 and stem1, channels is set as scale
+            # level4-node1 level4-node2 level8-node1 level8-node2 level16-node1
+            self.prev_prev_c = prev_prev_scale
+            if self.layer == 0 and self.scale == 0: # level4-node1 using stem0 output as prev_prev_input, with stride2
+                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            elif self.layer == 0 and self.scale == 1: # level8-node1 using stem0 output as prev_prev_input, with stride4
+                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            elif self.layer == 1 and self.scale == 0: # level4-node2 using stem1 output as prev_prev_input, with stride1
+                self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False, affine=affine)
+            elif self.layer == 1 and self.scale == 1: # level8-node2 using stem1 output as prev_prev_input, with stride2
+                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            elif self.layer == 1 and self.scale == 2: # level16-node1 using stem1 output as prev_prev_input, with stride4
+                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
+            else: raise ValueError('relation error between prev_prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
+        # preprocess1
+        if index2channel.get(self.prev_scale) is not None:
+            self.prev_c = index2channel[self.prev_scale]
+            if self.prev_scale == self.scale + 1: # up
+                self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc, affine=affine)
+            elif self.prev_scale == self.scale: # same
+                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False, affine=affine)
+            elif self.prev_scale == self.scale - 1: # down
+                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc, affine=affine)
+            else: raise ValueError('relation error in prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
+        else:
+            # level4-node1 and level8-node1
+            self.prev_c = prev_scale
+            if self.layer == 0 and self.scale == 0: # level4-node1 using stem1 output as prev_input, with stride1
+                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False, affine=affine)
+            elif self.layer == 0 and self.scale == 1: # level8-node1 using stem1 output as prev_input, with stride2
+                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc, affine=affine)
+            else: raise ValueError('relation error between prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
+        '''
         # todo, new attribute nn.ModuleDict()
         self.ops = nn.ModuleDict()
         # i::node_index, j::previous_node_index
@@ -188,62 +268,49 @@ class GumbelCell(MyModule):
             for i in range(2, self.total_nodes):
                 for j in range(i):
                     edge_str = '{:}<-{:}'.format(i, j)
-                    if j == 0 and self.prev_prev_scale is None:  # for prev_prev_cell
-                        mobile_inverted_conv = None
-                        shortcut = None
-                    else:
-                        mobile_inverted_conv = MixedOp(
-                            build_candidate_ops(self.conv_candidates,
-                                                in_channels=self.outc, out_channels=self.outc, stride=1,
-                                                ops_order='act_weight_bn',
-                                                affine=self.affine))  # normal MixedOp, ModuleList with weight
-                        shortcut = Identity(self.outc, self.outc)
-                    if mobile_inverted_conv is None and shortcut is None:
-                        inverted_residual_block = None
-                    else:
-                        inverted_residual_block = MobileInvertedResidualBlock(mobile_inverted_conv, shortcut)
+                    #if j == 0 and self.prev_prev_scale is None:  # for prev_prev_cell
+                    #    mobile_inverted_conv = None
+                    #    shortcut = None
+                    #else:
+                    mobile_inverted_conv = MixedOp(
+                        build_candidate_ops(self.conv_candidates,
+                                            in_channels=self.outc, out_channels=self.outc, stride=1,
+                                            ops_order='act_weight_bn', affine=self.affine))  # normal MixedOp, ModuleList with weight
+                    shortcut = Identity(self.outc, self.outc)
+                    #if mobile_inverted_conv is None and shortcut is None:
+                    #    inverted_residual_block = None
+                    #else:
+                    inverted_residual_block = MobileInvertedResidualBlock(mobile_inverted_conv, shortcut)
                     self.ops[edge_str] = inverted_residual_block
         elif self.search_space == 'autodeeplab':
+            # TODO: have issue in search space of autodeeplab
             for i in range(2, self.total_nodes):
                 for j in range(i):
                     edge_str = '{:}<-{:}'.format(i, j)
-                    if j == 0 and self.prev_prev_scale is None:
-                        op = None
-                    else:
-                        op = MixedOp(
-                            build_candidate_ops(self.conv_candidates,
-                                                in_channels=self.outc, out_channels=self.outc, stride=1,
-                                                ops_order='act_weight_bn', affine=self.affine,))
+                    #if j == 0 and self.prev_prev_scale is None:
+                    #    op = None
+                    #else:
+                    op = MixedOp(build_candidate_ops(self.conv_candidates, in_channels=self.outc, out_channels=self.outc, stride=1,
+                                                ops_order='act_weight_bn', affine=self.affine))
                     self.ops[edge_str] = op
         else:
             raise ValueError('search space {:} is not supported'.format(self.search_space))
 
-
         self.finalconv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
-
         self.edge_keys = sorted(list(self.ops.keys())) # 'sorted by {:}<-{:}'
         self.edge2index = {key:i for i, key in enumerate(self.edge_keys)} # {:}<-{:} : index
         self.nb_edges = len(self.ops)
 
-        # TODO: change into zero initialization following darts and gumbels
         #self.cell_arch_parameters = nn.Parameter(torch.Tensor(self.nb_edges, self.n_choice))
         self.cell_arch_parameters = nn.Parameter(1e-3 * torch.randn(self.nb_edges, self.n_choice))
-
 
     @property
     def n_choice(self):
         return len(self.conv_candidates)
 
     def forward(self, s0, s1, weights):
-        # s0 and s1 are the output of prev_prev_cell and prev_cell, respectively.
-        # weights is importance of operations, have been sorted.
-
-        # s0 is none, self.prev_prev_scale is None, self.prev_prev_c is none, self.preprocess0 is None
-
-
-        if s0 is not None:
-            assert self.preprocess0 is not None, 'preprocess0 and s0 are inconsistent '
-            s0 = self.preprocess0(s0)
+        # s0 and s1 always exist!
+        s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
 
         states = [s0, s1] # features of node0 and node1
@@ -274,16 +341,43 @@ class GumbelCell(MyModule):
         return concat_feature
 
     def forward_gdas(self, s0, s1, hardwts, index):
-        # s0 and s1 are the output of prev_prev_cell and prev_cell, respectively.
-        # weights is importance of operations, have been sorted.
 
-        # s0 is none, self.prev_prev_scale is None, self.prev_prev_c is none, self.preprocess0 is None
+        # s0 and s1 always exist!
+        # check s0.shape and s1.shape [B, C, H, W]
+        #print(s0)
+        #print(s1)
 
-        #print(self.prev_prev_scale, self.prev_scale)
+        s0_size = s0[0].size()[2]
+        s1_size = s1[0].size()[2]
+        # TODO: change 512 to argument
+        current_size = 512 / self.index2scale[self.scale]
+        #print(s0_size, s1_size)
+        #print(current_size)
 
-        if s0 is not None:
-            s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
+        if s0_size / current_size == 4.: # double down
+            s0 = self.double_down_link_prev_prev(s0)
+        elif s0_size / current_size == 2.: # down
+            s0 = self.down_link_prev_prev(s0)
+        elif s0_size / current_size == 1.: # same
+            s0 = self.same_link_prev_prev(s0)
+        elif s0_size / current_size == 1/2: # up
+            s0 = self.up_link_prev_prev(s0)
+        elif s0_size / current_size == 1/4: # double up
+            s0 = self.double_up_link_prev_prev(s0)
+        else:
+            raise ValueError('invalid size relation s0_size / current_size = {:} in gdas_forward pass'.format(s0_size / current_size))
+
+        if s1_size / current_size == 2.: # down
+            s1 = self.down_link_prev(s1)
+        elif s1_size / current_size == 1.: # same
+            s1 = self.same_link_prev(s1)
+        elif s1_size / current_size == 1/2: # up
+            s1 = self.up_link_prev(s1)
+        else:
+            raise ValueError('invalid size relation s1_size / current_size = {:} in gdas_forward pass'.format(s1_size / current_size))
+
+        #s0 = self.preprocess0(s0)
+        #s1 = self.preprocess1(s1)
 
         states = [s0, s1]
 
@@ -293,10 +387,8 @@ class GumbelCell(MyModule):
                 edge_str = '{:}<-{:}'.format(i, j)
                 branch_index = self.edge2index[edge_str]
                 related_hidden = states[j]
-                if self.ops[edge_str] is None or related_hidden is None:
-                    # TODO: pay attention here, related to process of prev_prev_feature in sampled single_path in AutoDeepLab
-                    #assert  related_hidden is None, 'inconsistent action of cell operations and prev_prev_cell'
-                    continue
+                #if self.ops[edge_str] is None or related_hidden is None:
+                #    continue
                 weight = hardwts[branch_index]
                 argmax = index[branch_index].item()
                 new_state = self.ops[edge_str].forward_gdas(related_hidden, weight, argmax) # edge output of a node
@@ -311,6 +403,7 @@ class GumbelCell(MyModule):
 
 
     def get_flops(self, s0, s1):
+        # TODO: get rid of get_flops,
         # TODO: network flops should be calculated after derived!!!
         flop_preprocess0 = 0.
         if s0 is not None:

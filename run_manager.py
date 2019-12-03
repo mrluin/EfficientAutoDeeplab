@@ -16,7 +16,7 @@ from utils.logger import time_string, save_checkpoint
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
 from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
-from models.gumbel_cells import search_space_dict
+from models.gumbel_cells import autodeeplab, proxyless, counter
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -89,7 +89,15 @@ class RunConfig:
         self.use_unbalanced_weights = use_unbalanced_weights
 
         self.search_space = search_space
-        self.conv_candidates = search_space_dict[self.search_space]
+        if self.search_space == 'autodeeplab':
+            self.conv_candidates = autodeeplab
+        elif self.search_space == 'proxyless':
+            self.conv_candidates = proxyless
+        elif self.search_space == 'counter':
+            self.conv_candidates = counter
+        else:
+            raise ValueError('search space {:} is not support'.format(self.search_space))
+        #self.conv_candidates = search_space_dict[self.search_space]
 
         self.actual_path = actual_path
         self.cell_genotypes = cell_genotypes
@@ -282,6 +290,11 @@ class RunManager:
         optimizer, scheduler, criterion = self.run_config.get_optim_scheduler_criterion(
             parameters=self.model.weight_parameters(), optimizer_config=self.run_config.optimizer_config
         )
+
+        # only used for training counter-network
+        #self.optimizer = torch.optim.Adam(self.model.weight_parameters(), lr=5e-4, weight_decay=2e-4)
+        #lambda1 = lambda epoch: pow((1-((epoch-1)/self.run_config.epochs)), 0.9)
+        #self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda1)
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.criterion = criterion
@@ -425,7 +438,7 @@ class RunManager:
         accs = AverageMeter()
         mious = AverageMeter()
         fscores = AverageMeter()
-        self.model.train()
+
         epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_config.epochs)
         iter_per_epoch = len(self.run_config.train_loader)
         end = time.time()
@@ -456,7 +469,8 @@ class RunManager:
             batch_time.update(time.time()-end)
             end = time.time()
             # within one epoch, per iteration print train_log
-            if (i+1) % self.run_config.train_print_freq or (i+1) == len(self.run_config.train_loader):
+            if (i+1) % self.run_config.train_print_freq == 0 or (i+1) == len(self.run_config.train_loader):
+                #print(i+1, self.run_config.train_print_freq)
                 Wstr = '|*TRAIN*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i + 1, iter_per_epoch)
                 Tstr = '|Time   | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
                 Bstr = '|Base   | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]' \
@@ -467,6 +481,7 @@ class RunManager:
     def train(self):
         epoch_time = AverageMeter()
         end = time.time()
+        self.model.train()
         # TODO: in retrain phase, should modify total_epochs
         for epoch in range(self.start_epoch, self.run_config.total_epochs):
             self.logger.log('\n'+'-'*30+'Train epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='retrain')

@@ -393,6 +393,49 @@ class FactorizedReduce(MyModule):
     def is_zero_layer():
         return False
 
+class DoubleFactorizedReduce(MyModule):
+    def __init__(self, in_channels, out_channels, affine=True):
+        super(DoubleFactorizedReduce, self).__init__()
+        assert out_channels % 2 == 0, 'the out_channels of DoubleFactorizedReduce layer should be divided by 2'
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.affine=affine
+        self.act_func = build_activation('relu')
+        self.conv_1 = nn.Conv2d(self.in_channels, self.out_channels // 2, 1, stride=4, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(self.in_channels, self.out_channels // 2, 1, stride=4, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels, affine=affine)
+        self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
+    def forward(self, x):
+        x = self.act_func(x)
+        y = self.pad(x)
+        out = torch.cat([self.conv_1(x), self.conv_2(y[:, :, 1:, 1:])], dim=1)
+        out = self.bn(out)
+        return out
+
+    @property
+    def module_str(self, *args, **kwargs):
+        return 'DoubleFactorizedReduce'
+
+    @property
+    def config(self):
+        return {
+            'name': DoubleFactorizedReduce.__name__,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'affine': self.affine,
+        }
+
+    @staticmethod
+    def build_from_config(config):
+        return DoubleFactorizedReduce(**config)
+
+    def get_flops(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @staticmethod
+    def is_zero_layer():
+        return False
+
 
 class FactorizedIncrease(MyModule):
     def __init__(self,
@@ -448,6 +491,46 @@ class FactorizedIncrease(MyModule):
         tmp_x = self.upsample_layer(x)
         delta_flops = count_conv_flop(self.conv, tmp_x)
         return delta_flops, self.forward(x)
+
+    @staticmethod
+    def is_zero_layer():
+        return False
+
+class DoubleFactorizedIncrease(MyModule):
+    def __init__(self, in_channels, out_channels, affine=True):
+        super(DoubleFactorizedIncrease, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.affine = affine
+        self.op = nn.Sequential(
+            nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True),
+            nn.ReLU(inplace=False),
+            nn.Conv2d(self.in_channels, out_channels, 1, stride=1, padding=0),
+            nn.BatchNorm2d(out_channels, affine=affine)
+        )
+
+    def forward(self, x):
+        return self.op(x)
+
+    @property
+    def module_str(self):
+        return 'DoubleFactorizedIncrease'
+
+    @property
+    def config(self):
+        return {
+            'name': DoubleFactorizedIncrease.__name__,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'affine': self.affine
+        }
+
+    @staticmethod
+    def build_from_config(config):
+        return DoubleFactorizedIncrease(**config)
+
+    def get_flops(self, x):
+        raise NotImplementedError
 
     @staticmethod
     def is_zero_layer():
@@ -601,9 +684,9 @@ class MobileInvertedResidualBlock(MyModule):
         if self.mobile_inverted_conv.is_zero_layer():
             res = x
         elif self.shortcut is None or self.shortcut.is_zero_layer():
-            res = self.mobile_inverted_conv(x)
+            res = self.mobile_inverted_conv.forward_single(x)
         else:
-            conv_x = self.mobile_inverted_conv(x)
+            conv_x = self.mobile_inverted_conv.forward_single(x)
             skip_x = self.shortcut(x)
             res = skip_x + conv_x
         return res

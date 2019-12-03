@@ -34,7 +34,7 @@ class visdomer(object):
         if element == 'lr':
             init_lr  = self.init_params.get('lr')
             assert init_lr is not None, 'init_lr is None when init visom of learning rate'
-            window = visdom.line(
+            window = self.viz.line(
                 X = torch.ones(1),
                 Y = torch.tensor([init_lr]),
                 opts = dict(title = '{}'.format(element),
@@ -43,9 +43,9 @@ class visdomer(object):
                             xtickstep=10, ytype='linear', ytickmin=0, ylabel='{}'.format(element),
                             ytick=True))
             return window
-        elif element in ['loss', 'accuracy', 'miou', 'f1socre']:
+        elif element in ['loss', 'accuracy', 'miou', 'f1score']:
             assert isinstance(self.compare_phase, list) and len(self.compare_phase) == 2, 'compare_phase must be list and length with 2'
-            window = visdom.line(
+            window = self.viz.line(
                 X=torch.stack((torch.ones(1), torch.ones(1)), 1),
                 Y=torch.stack((torch.ones(1), torch.ones(1)), 1),
                 opts=dict(title='{}-{}-{}'.format(self.compare_phase[0], self.compare_phase[1], element),
@@ -59,12 +59,12 @@ class visdomer(object):
         return window
 
     def visdom_update(self, epoch, update_element, update_value):
-        if update_element in ['loss', 'accuracy', 'miou', 'f1socre']:
+        if update_element in ['loss', 'accuracy', 'miou', 'f1score']:
             assert update_value is list and len(update_value) == 2, 'update_value should be list and with lenght 2'
             train_log = update_value[0]
             valid_log = update_value[1]
             window = self.get_window(update_element)
-            visdom.line(
+            self.viz.line(
                 X = torch.stack((torch.ones(1) * epoch, torch.ones(1) * epoch), 1),
                 Y = torch.stack((torch.tensor([train_log]), torch.tensor([valid_log])), 1),
                 win = window,
@@ -73,7 +73,7 @@ class visdomer(object):
         elif update_element == 'lr':
             current_lr = update_value[0]
             window = self.get_window(update_element)
-            visdom.line(
+            self.viz.line(
                 X = torch.ones(1) * epoch,
                 Y = torch.tensor([current_lr]),
                 win = window,

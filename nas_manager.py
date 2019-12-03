@@ -189,7 +189,7 @@ class ArchSearchRunManager:
 
     def warm_up(self, warmup_epochs):
         if warmup_epochs <=0 :
-            self.logger.log('\twarmup close', mode='warm')
+            self.logger.log('=> warmup close', mode='warm')
             #print('\twarmup close')
             return
         # set optimizer and scheduler in warm_up phase
@@ -207,7 +207,7 @@ class ArchSearchRunManager:
         iter_per_epoch = len(data_loader)
         total_iteration = warmup_epochs * iter_per_epoch
 
-        self.logger.log('\twarmup begin', mode='warm')
+        self.logger.log('=> warmup begin', mode='warm')
 
         epoch_time = AverageMeter()
         end_epoch = time.time()

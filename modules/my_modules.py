@@ -77,8 +77,11 @@ class MyNetwork(MyModule):
                 else:
                     raise NotImplementedError
             elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                if m.affine:
+                    m.weight.data.fill_(1)
+                    m.bias.data.zero_()
+                else:
+                    continue
             elif isinstance(m, nn.Linear):
                 stdv = 1. / math.sqrt(m.weight.size(1))
                 m.weight.data.uniform_(-stdv, stdv)

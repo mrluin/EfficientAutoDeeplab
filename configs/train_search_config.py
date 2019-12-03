@@ -16,7 +16,7 @@ def obtain_train_search_args():
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
-    parser.add_argument('--search_space', type=str, default='autodeeplab', choices=['autodeeplab', 'proxyless'])
+    parser.add_argument('--search_space', type=str, default='proxyless', choices=['autodeeplab', 'proxyless', 'counter']) # counter search space is used to debug
     # for visdom
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
@@ -61,7 +61,7 @@ def obtain_train_search_args():
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
-    parser.add_argument('--train_print_freq', type=int, default=50)
+    parser.add_argument('--train_print_freq', type=int, default=30)
 
     # these two make no sense.
     #parser.add_argument('--print_save_arch_information', default=False, action='store_true')

@@ -70,25 +70,6 @@ def main(args):
         'epochs': args.epochs,
         'class_num': args.nb_classes,
     }
-    # TODO: get rid of this block, search space is controled in search_space_dict in gumbel_cell.py
-    '''
-    if args.search_space == 'autodeeplab':
-        args.conv_candidates = [
-            'none'        , 'max_pool_3x3',
-            'Identity'    , 'avg_pool_3x3',
-            'sep_conv_3x3', 'sep_conv_5x5',
-            'dil_conv_3x3', 'dil_conv_5x5'
-        ]
-    elif args.search_space == 'proxyless':
-        args.conv_candidates = [
-            '3x3_MBConv3', '3x3_MBConv6',
-            '5x5_MBConv3', '5x5_MBConv6',
-            '7x7_MBConv3', '7x7_MBConv6',
-            'Zero',  # 'Identity'
-        ]
-    else:
-        raise ValueError('search_space name : {:} is not supported'.format(args.search_space))
-        '''
     conv_candidates = search_space_dict[args.search_space]
     # create run_config
     run_config = RunConfig(**args.__dict__)
@@ -120,7 +101,7 @@ def main(args):
             log_str += 'index: {:} arch: {:}\n'.format(_index, genotype)
         logger.log(log_str, mode='info')
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
-                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space)
+                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space, affine=True)
         retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
         display_all_families_information(args, 'retrain', retrain_run_manager, logger)
 
@@ -145,7 +126,7 @@ def main(args):
             'checkpoint file should includes model state_dict in testing phase. please re-confirm'
         actual_path, cell_genotypes = checkpoint['actual_path'], checkpoint['cell_genotypes']
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
-                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space)
+                                              args.steps, args.nb_classes, actual_path, cell_genotypes, args.search_space, affine=True)
         normal_network.load_state_dict(checkpoint['state_dict'])
         test_manager = RunManager(args.path, normal_network, logger, run_config, vis=None, out_log=True)
         display_all_families_information(args, 'retrain', test_manager, logger)

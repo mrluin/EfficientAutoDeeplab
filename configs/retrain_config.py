@@ -59,7 +59,7 @@ def obtain_retrain_args():
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
     parser.add_argument('--validation_freq', type=int, default=1)
-    parser.add_argument('--train_print_freq', type=int, default=10)
+    parser.add_argument('--train_print_freq', type=int, default=50)
 
     ''' net configs '''
     parser.add_argument('--nb_layers', type=int, default=12)
