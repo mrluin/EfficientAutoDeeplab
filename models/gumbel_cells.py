@@ -17,7 +17,7 @@ __all__ = ['build_candidate_ops', 'GumbelCell', 'MixedOp']
 
 
 autodeeplab = [
-    'Zero'          , 'Identity'      ,
+    #'Zero'          , 'Identity'      ,
     #'3x3_MaxPooling', '3x3_AvgPooling',
     '3x3_DWConv'    , '5x5_DWConv'    ,
     '3x3_DilConv'   , '5x5_DilConv'

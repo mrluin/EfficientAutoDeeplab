@@ -106,8 +106,7 @@ def main(args):
     # args.bn_momentum and args.bn_eps are not used
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
-        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, authors=True
-    )
+        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
 
