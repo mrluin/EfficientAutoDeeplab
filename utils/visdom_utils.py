@@ -60,7 +60,8 @@ class visdomer(object):
 
     def visdom_update(self, epoch, update_element, update_value):
         if update_element in ['loss', 'accuracy', 'miou', 'f1score']:
-            assert update_value is list and len(update_value) == 2, 'update_value should be list and with lenght 2'
+            #print(update_value)
+            assert isinstance(update_value, list) and len(update_value) == 2, 'update_value should be list and with length 2, but got {:} with length {:}'.format(type(update_value), len(update_value))
             train_log = update_value[0]
             valid_log = update_value[1]
             window = self.get_window(update_element)

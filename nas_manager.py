@@ -355,7 +355,7 @@ class ArchSearchRunManager:
 
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
-                #if i == 59: break
+                if i == 59: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
