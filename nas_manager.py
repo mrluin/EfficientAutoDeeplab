@@ -288,7 +288,7 @@ class ArchSearchRunManager:
             # continue warmup phrase
             self.warmup = epoch + 1 < warmup_epochs
             self.warmup_epoch = self.warmup_epoch + 1
-            self.start_epoch = self.warmup_epoch
+            #self.start_epoch = self.warmup_epoch
             # To save checkpoint in warmup phase at specific frequency.
             if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch+1) == warmup_epochs:
                 state_dict = self.net.state_dict()
@@ -301,7 +301,7 @@ class ArchSearchRunManager:
                     'weight_optimizer' : self.run_manager.optimizer.state_dict(),
                     'weight_scheduler': self.run_manager.optimizer.state_dict(),
                     'warmup': self.warmup,
-                    'start_epochs': epoch+1,
+                    'warmup_epoch': epoch+1,
                 }
                 filename = self.logger.path(mode='warm', is_best=False)
                 save_path = save_checkpoint(checkpoint, filename, self.logger, mode='warm')
@@ -324,7 +324,8 @@ class ArchSearchRunManager:
         # pay attention here, total_epochs include warmup epochs
         epoch_time = AverageMeter()
         end_epoch = time.time()
-        for epoch in range(self.run_manager.run_config.epochs):
+        # TODO : use start_epochs
+        for epoch in range(self.start_epoch, self.run_manager.run_config.epochs):
             self.logger.log('\n'+'-'*30+'Train Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='search')
 
             self.run_manager.scheduler.step(epoch)
@@ -355,7 +356,7 @@ class ArchSearchRunManager:
 
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
-                if i == 59: break
+                #if i == 59: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -480,6 +481,7 @@ class ArchSearchRunManager:
             #self.run_manager.save_model(epoch, {
             #    'arch_optimizer': self.arch_optimizer.state_dict(),
             #}, is_best=True, checkpoint_file_name=None)
+            # TODO: have modification on checkpoint_save semantics
             if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch + 1) == self.run_manager.run_config.total_epochs or is_best:
                 checkpoint = {
                     'state_dict'      : self.net.state_dict(),

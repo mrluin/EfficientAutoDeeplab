@@ -14,7 +14,7 @@ class visdomer(object):
         self.hostname = hostname
         self.env_name = model_name
         self.viz = Visdom(server=hostname, port=port, env=model_name)
-
+        assert self.viz.check_connection(timeout_seconds=3), 'No connection could be formed quickly'
         self.compare_phase = compare_phase
         self.init_params = init_params
 

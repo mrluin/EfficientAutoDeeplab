@@ -38,7 +38,7 @@ result.backward()
 print(hardwts.grad)
 print(arch_parameters.grad)
 '''
-
+'''
 actual_path = [1,2,3,4,5,6,7,788]
 aa = [(1,2), [(3,4)]]
 
@@ -46,7 +46,22 @@ file = open('./test.log', 'w')
 for i in range(10):
     file.write(str(aa))
     file.flush()
+'''
+import json
+import os
+from configs.train_search_config import obtain_train_search_args
+def save_configs(configs, save_path, phase):
 
+    if configs is not None:
+        config_path = os.path.join(save_path, '{:}.config'.format(phase))
+        print('=' * 30 + '\n' + 'Run Configs dumps to {}'.format(config_path))
+        json.dump(configs, open(config_path, 'w'), indent=4)
 
+args = obtain_train_search_args()
 
+#save_configs(args.__dict__, './', 'test')
 
+with open('./test.config', 'r') as f:
+    load_dict = json.load(f)
+
+print(load_dict['path'])
