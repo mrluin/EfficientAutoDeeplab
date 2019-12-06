@@ -19,7 +19,10 @@ def set_layer_from_config(layer_config):
         Zero.__name__: Zero,
         MBInvertedConvLayer.__name__: MBInvertedConvLayer,
         FactorizedReduce.__name__: FactorizedReduce,
-        FactorizedIncrease.__name__: FactorizedIncrease
+        FactorizedIncrease.__name__: FactorizedIncrease,
+        FactorizedConvBlock.__name__: FactorizedConvBlock,
+        SepFacConvBlock.__name__: SepFacConvBlock,
+        SeparableConvBlock.__name__: SeparableConvBlock
     }
     layer_name = layer_config.pop('name')
     layer = name2layer[layer_name]
@@ -222,6 +225,8 @@ class DilConv(My2DLayer):
     def get_flops(self, x):
         return count_conv_flop(self.conv, x), self.forward(x)
 
+
+
 class SepConv(My2DLayer):
     def __init__(self,
                  in_channels,
@@ -240,6 +245,7 @@ class SepConv(My2DLayer):
         self.padding = get_padding_size(self.kernel_size, 1)
         self.bias = bias
         super(SepConv, self).__init__(in_channels, out_channels, use_bn, affine, act_func, dropout_rate, ops_order)
+
     def weight_op(self):
 
         weight_dict = OrderedDict()
@@ -589,6 +595,9 @@ class ASPP(MyModule):
         return 'ASPP conv1x1 conv3x3_d{} globpooling'.format(3, 3, self.dilation)
 
 
+
+
+
 class MBInvertedConvLayer(MyModule):
     def __init__(self,
                  in_channels, out_channels,
@@ -732,3 +741,328 @@ class MobileInvertedResidualBlock(MyModule):
             flops2 = 0
 
         return flops1 + flops2, self.forward(x)
+
+
+#============================= Efficient ConvLayers in ESF-Net =============================#
+# ops_order 'act_weight_bn'.
+# separable convolutional, factorized convolutional, and factorized separable convolutional layer are applied twice by default.
+# the compress ratio of bottleneck layer is 4 by default.
+# the dilation of the first group of convolution is set to 1, by default.
+# apply residual block when bottleneck == True
+# todo new attribute
+class FactorizedConvBlock(MyModule):
+    def __init__(self,
+                 in_channels, out_channels, kernel_size,
+                 stride=1, dilation=1, affine=True, bottleneck=False):
+        super(FactorizedConvBlock, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        #self.inter_dim = in_channels // 4 # ratio
+        self.kernel_size = kernel_size
+        self.stride=stride
+        self.affine=affine
+        self.dilation=dilation
+        self.padding_size0 = get_padding_size(kernel_size, 1)
+        self.padding_size1 = get_padding_size(kernel_size, dilation)
+        self.bottleneck = bottleneck
+        #('conv0_act', nn.ReLU6(inplace=False)),
+        #('conv0', nn.Conv2d(self.in_channels, self.inter_dim, 1, 1, 0, 1, 1, bias=False)),
+        #('conv0_bn', nn.BatchNorm2d(self.inter_dim, affine=self.affine)),
+
+        #('conv2_act', nn.ReLU6(inplace=False)),
+        #('conv2', nn.Conv2d(self.inter_dim, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+        #('conv2_bn', nn.BatchNorm2d(self.out_channels, affine=self.affine))
+        if bottleneck:
+            self.inter_channels = self.in_channels // 4
+            self.compress_conv = nn.Sequential(OrderedDict([
+                ('act', nn.ReLU6(inplace=False)),
+                ('conv', nn.Conv2d(self.in_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ]))
+            self.bottleneck_layer = nn.Sequential(OrderedDict([
+                ('conv1_1_act', nn.ReLU6(inplace=False)),
+                ('conv1_1', nn.Conv2d(self.inter_channels, self.inter_channels, (self.kernel_size, 1), (self.stride, 1),
+                                      (self.padding_size0, 0),
+                                      dilation=1, groups=1, bias=False)),
+                ('conv1_1_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+
+                ('conv1_2_act', nn.ReLU6(inplace=False)),
+                ('conv1_2', nn.Conv2d(self.inter_channels, self.inter_channels, (1, self.kernel_size), (1, self.stride),
+                                      (0, self.padding_size0),
+                                      dilation=1, groups=1, bias=False)),
+                ('conv1_2_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+
+                ('conv2_1_act', nn.ReLU6(inplace=False)),
+                ('conv2_1', nn.Conv2d(self.inter_channels, self.inter_channels, (self.kernel_size, 1), (self.stride, 1),
+                                      (self.padding_size1, 0), dilation=self.dilation, groups=1, bias=False)),
+                ('conv2_1_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+
+                ('conv2_2_act', nn.ReLU6(inplace=False)),
+                ('conv2_2', nn.Conv2d(self.inter_channels, self.inter_channels, (1, self.kernel_size), (1, self.stride),
+                                      (0, self.padding_size1), dilation=self.dilation, groups=1, bias=False)),
+                ('conv2_2_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+            ]))
+            self.expansion_conv = nn.Sequential(OrderedDict([
+                ('conv', nn.Conv2d(self.inter_channels, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.out_channels, affine=self.affine))
+            ]))
+        else:
+            self.bottleneck_layer = nn.Sequential(OrderedDict([
+                ('conv1_1_act', nn.ReLU6(inplace=False)),
+                ('conv1_1', nn.Conv2d(self.in_channels, self.in_channels, (self.kernel_size, 1), (self.stride, 1), (self.padding_size0, 0),
+                                    dilation=1, groups=1, bias=False)),
+                ('conv1_1_bn', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+
+                ('conv1_2_act', nn.ReLU6(inplace=False)),
+                ('conv1_2', nn.Conv2d(self.in_channels, self.in_channels, (1, self.kernel_size), (1, self.stride), (0, self.padding_size0),
+                                      dilation=1, groups=1, bias=False)),
+                ('conv1_2_bn', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+
+                ('conv2_1_act', nn.ReLU6(inplace=False)),
+                ('conv2_1', nn.Conv2d(self.in_channels, self.out_channels, (self.kernel_size, 1), (self.stride, 1),
+                                      (self.padding_size1, 0), dilation=self.dilation, groups=1, bias=False)),
+                ('conv2_1_bn', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+
+                ('conv2_2_act', nn.ReLU6(inplace=False)),
+                ('conv2_2', nn.Conv2d(self.out_channels, self.out_channels, (1, self.kernel_size), (1, self.stride),
+                                      (0, self.padding_size1), dilation=self.dilation, groups=1, bias=False)),
+                ('conv2_2_bn', nn.BatchNorm2d(self.out_channels, affine=self.affine)),
+            ]))
+    def forward(self, x):
+        if self.bottleneck:
+            input = x
+            x = self.compress_conv(x)
+            x = self.bottleneck_layer(x)
+            x = self.expansion_conv(x)
+            return F.relu6(torch.add(x, input))
+        else:
+            return self.bottleneck_layer(x)
+
+    @property
+    def module_str(self):
+        return '{:}x{:}_FactorizedConvBLock{:}'.format(self.kernel_size, self.kernel_size, self.dilation)
+
+    @property
+    def config(self):
+        return {
+            'name': FactorizedConvBlock.__name__,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'kernel_size': self.kernel_size,
+            'stride': self.stride,
+            'dilation': self.dilation,
+            'affine': self.affine,
+            'bottlenect': self.bottleneck,
+        }
+    @staticmethod
+    def build_from_config(config):
+        return FactorizedConvBlock(**config)
+
+    def get_flops(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @staticmethod
+    def is_zero_layer():
+        return False
+
+# TODO: replace SepConv
+class SeparableConvBlock(MyModule):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, dilation=1 ,affine=True, bottleneck=False):
+        super(SeparableConvBlock, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.affine = affine
+        self.bottleneck = bottleneck
+        self.padding_size0 = get_padding_size(self.kernel_size, 1)
+        self.padding_size1 = get_padding_size(self.kernel_size, self.dilation)
+
+        if bottleneck:
+            self.inter_channels = self.in_channels // 4
+            self.compress_conv = nn.Sequential(OrderedDict([
+                ('act', nn.ReLU6(inplace=False)),
+                ('conv', nn.Conv2d(self.in_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ]))
+            self.conv_layer = nn.Sequential(OrderedDict([
+                ('act1', nn.ReLU6(inplace=False)),
+                ('depth_wise_1',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, self.kernel_size, self.stride, self.padding_size0,
+                           1, self.inter_channels, bias=False)),
+                ('point_wise_1', nn.Conv2d(self.inter_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('point_wise_1_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('act2', nn.ReLU6(inplace=False)),
+                ('depth_wise_2',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, self.kernel_size, self.stride, self.padding_size1,
+                           self.dilation, self.inter_channels, bias=False)),
+                ('point_wise_2', nn.Conv2d(self.inter_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('point_wise_2_bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+            ]))
+            self.expansion_conv = nn.Sequential(OrderedDict([
+                ('conv', nn.Conv2d(self.inter_channels, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.out_channels, affine=self.affine))
+            ]))
+        else:
+            self.conv_layer = nn.Sequential(OrderedDict([
+                ('act1', nn.ReLU6(inplace=False)),
+                ('depth_wise_1', nn.Conv2d(self.in_channels, self.in_channels, self.kernel_size, self.stride, self.padding_size0,
+                                         1, self.in_channels, bias=False)),
+                ('point_wise_1', nn.Conv2d(self.in_channels, self.in_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('point_wise_1_bn', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('act2', nn.ReLU6(inplace=False)),
+                ('depth_wise_2', nn.Conv2d(self.in_channels, self.in_channels, self.kernel_size, self.stride, self.padding_size1,
+                                         self.dilation, self.in_channels, bias=False)),
+                ('point_wise_2', nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('point_wise_2_bn', nn.BatchNorm2d(self.out_channels, affine=self.affine)),
+            ]))
+    def forward(self, x):
+        if self.bottleneck:
+            input = x
+            x = self.compress_conv(x)
+            x = self.conv_layer(x)
+            x = self.expansion_conv(x)
+            return F.relu6(torch.add(x, input))
+        else:
+            return self.conv_layer(x)
+    @property
+    def module_str(self):
+        return '{:}x{:}SeparableConvBlock{:}'.format(self.kernel_size, self.kernel_size, self.dilation)
+    @property
+    def config(self):
+        return {
+            'name': SeparableConvBlock.__name__,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'kernel_size': self.kernel_size,
+            'stride': self.stride,
+            'dilation': self.dilation,
+            'affine': self.affine,
+            'bottleneck': self.bottleneck
+        }
+    @staticmethod
+    def build_from_config(config):
+        return SeparableConvBlock(**config)
+    def get_flops(self, x):
+        raise NotImplementedError
+    @staticmethod
+    def is_zero_layer():
+        return False
+
+class SepFacConvBlock(MyModule):
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, dilation=1, affine=True, bottleneck=False):
+        super(SepFacConvBlock, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.affine = affine
+        self.bottleneck = bottleneck
+        # padding size with or without dilation
+        self.padding_size0 = get_padding_size(self.kernel_size, 1)
+        self.padding_size1 = get_padding_size(self.kernel_size, self.dilation)
+        if bottleneck:
+            self.inter_channels = self.in_channels // 4
+
+            self.compress_conv = nn.Sequential(OrderedDict([
+                ('act', nn.ReLU6(inplace=False)),
+                ('conv', nn.Conv2d(self.in_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+            ]))
+            self.conv_layer = nn.Sequential(OrderedDict([
+                ('act0', nn.ReLU6(inplace=False)),
+                ('depth_wise_0_1',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, (self.kernel_size, 1), (self.stride, 1),
+                           (self.padding_size0, 1),
+                           1, self.inter_channels, bias=False)),
+                ('bn0_1', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('depth_wise_0_2',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, (1, self.kernel_size), (1, self.stride),
+                           (1, self.padding_size0),
+                           1, self.inter_channels, bias=False)),
+                #('bn0_2', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('point_wise_0', nn.Conv2d(self.inter_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn0_3', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('act1', nn.ReLU6(inplace=False)),
+                ('depth_wise_1_1',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, (self.kernel_size, 1), (self.stride, 1),
+                           (self.padding_size1, 1),
+                           dilation=self.dilation, groups=self.inter_channels, bias=False)),
+                ('bn1_1', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('depth_wise_1_2',
+                 nn.Conv2d(self.inter_channels, self.inter_channels, (1, self.kernel_size), (1, self.stride),
+                           (1, self.padding_size1),
+                           dilation=self.dilation, groups=self.inter_channels, bias=False)),
+                #('bn1_2', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+                ('point_wise_1', nn.Conv2d(self.inter_channels, self.inter_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn1_3', nn.BatchNorm2d(self.inter_channels, affine=self.affine)),
+            ]))
+            self.expansion_conv = nn.Sequential(OrderedDict([
+                ('conv', nn.Conv2d(self.inter_channels, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn', nn.BatchNorm2d(self.out_channels, affine=self.affine))
+            ]))
+        else:
+            self.conv_layer = nn.Sequential(OrderedDict([
+                ('act0', nn.ReLU6(inplace=False)),
+                ('depth_wise_0_1', nn.Conv2d(self.in_channels, self.in_channels, (self.kernel_size, 1), (self.stride, 1), (self.padding_size0, 1),
+                                             1, self.in_channels, bias=False)),
+                ('bn0_1', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('depth_wise_0_2', nn.Conv2d(self.in_channels, self.in_channels, (1, self.kernel_size), (1, self.stride), (1, self.padding_size0),
+                                             1, self.in_channels, bias=False)),
+                #('bn0_2', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('point_wise_0', nn.Conv2d(self.in_channels, self.in_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn0_3', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('act1', nn.ReLU6(inplace=False)),
+                ('depth_wise_1_1', nn.Conv2d(self.in_channels, self.in_channels, (self.kernel_size, 1), (self.stride, 1), (self.padding_size1, 1),
+                                             dilation=self.dilation, groups=self.in_channels, bias=False)),
+                ('bn1_1', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('depth_wise_1_2', nn.Conv2d(self.in_channels, self.in_channels, (1, self.kernel_size), (1, self.stride), (1, self.padding_size1),
+                                             dilation=self.dilation, groups=self.in_channels, bias=False)),
+                #('bn1_2', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+                ('point_wise_1', nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0, 1, 1, bias=False)),
+                ('bn1_3', nn.BatchNorm2d(self.in_channels, affine=self.affine)),
+            ]))
+
+    def forward(self, x):
+        if self.bottleneck:
+            input = x
+            x = self.compress_conv(x)
+            x = self.conv_layer(x)
+            x = self.expansion_conv(x)
+            return F.relu6(torch.add(x, input))
+        else:
+            return self.conv_layer(x)
+
+    @property
+    def module_str(self):
+        return '{:}x{:}SepFacConvBlock{:}'.format(self.kernel_size, self.kernel_size, self.dilation)
+
+    @property
+    def config(self):
+        return {
+            'name': SepFacConvBlock.__name__,
+            'in_channels': self.in_channels,
+            'out_channels': self.out_channels,
+            'kernel_size': self.kernel_size,
+            'stride': self.stride,
+            'dilation': self.dilation,
+            'affine': self.affine,
+            'bottleneck': self.bottleneck
+        }
+
+    @staticmethod
+    def build_from_config(config):
+        return SepFacConvBlock(**config)
+
+    def get_flops(self, x):
+        raise NotImplementedError
+
+    @staticmethod
+    def is_zero_layer():
+        return False
+
+

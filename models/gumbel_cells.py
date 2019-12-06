@@ -31,6 +31,13 @@ proxyless = [
 counter = [
     '3x3_DilConv'
 ]
+# non-bottleneck architecture
+my_search_space = [
+    '3x3_SepFacConv1', '5x5_SepFacConv1' 
+    '3x3_SepFacConv2', '5x5_SepFacConv2',
+    '3x3_SepFacConv4', '5x5_SepFacConv4',
+    '3x3_SepFacConv8', '5x5_SepFacConv8',
+]
 
 
 def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_order, affine=True):
@@ -73,6 +80,37 @@ def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_ord
         '5x5_DilConv'   : lambda inc, outc, s, affine: DilConv(inc, outc, 5, s, 2, affine=affine),
         '3x3_AvgPooling': lambda inc, outc, s, affine: nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
         '3x3_MaxPooling': lambda inc, outc, s, affine: nn.MaxPool2d(3, stride=s, padding=1),
+        # ==========================================================================
+        '3x3_FacConv1'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 3, s, 1, affine=affine),
+        '3x3_FacConv2'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 3, s, 2, affine=affine),
+        '3x3_FacConv4'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 3, s, 4, affine=affine),
+        '3x3_FacConv8'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 3, s, 8, affine=affine),
+        '3x3_FacConv16'   : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 3, s, 16, affine=affine),
+        '5x5_FacConv1'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 5, s, 1, affine=affine),
+        '5x5_FacConv2'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 5, s, 2, affine=affine),
+        '5x5_FacConv4'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 5, s, 4, affine=affine),
+        '5x5_FacConv8'    : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 5, s, 8, affine=affine),
+        '5x5_FacConv16'   : lambda inc, outc, s, affine: FactorizedConvBlock(inc, outc, 5, s, 16, affine=affine),
+        '3x3_SepConv1'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 3, s, 1, affine=affine),
+        '3x3_SepConv2'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 3, s, 2, affine=affine),
+        '3x3_SepConv4'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 3, s, 4, affine=affine),
+        '3x3_SepConv8'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 3, s, 8, affine=affine),
+        '3x3_SepConv16'   : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 3, s, 16, affine=affine),
+        '5x5_SepConv1'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 5, s, 1, affine=affine),
+        '5x5_SepConv2'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 5, s, 2, affine=affine),
+        '5x5_SepConv4'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 5, s, 4, affine=affine),
+        '5x5_SepConv8'    : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 5, s, 8, affine=affine),
+        '5x5_SepConv16'   : lambda inc, outc, s, affine: SeparableConvBlock(inc, outc, 5, s, 16, affine=affine),
+        '3x3_SepFacConv1' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 3, s, 1, affine=affine),
+        '3x3_SepFacConv2' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 3, s, 2, affine=affine),
+        '3x3_SepFacConv4' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 3, s, 4, affine=affine),
+        '3x3_SepFacConv8' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 3, s, 8, affine=affine),
+        '3x3_SepFacConv16': lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 3, s, 16, affine=affine),
+        '5x5_SepFacConv1' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 5, s, 1, affine=affine),
+        '5x5_SepFacConv2' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 5, s, 2, affine=affine),
+        '5x5_SepFacConv4' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 5, s, 4, affine=affine),
+        '5x5_SepFacConv8' : lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 5, s, 8, affine=affine),
+        '5x5_SepFacConv16': lambda inc, outc, s, affine: SepFacConvBlock(inc, outc, 5, s, 16, affine=affine),
     })
     return [
         name2ops[name](in_channels, out_channels, stride, affine) for name in candiate_ops

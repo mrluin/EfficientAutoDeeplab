@@ -43,6 +43,8 @@ def build_candidate_ops(candiate_ops, in_channels, out_channels, stride, ops_ord
         '5x5_DilConv': lambda inc, outc, s: DilConv(inc, outc, 5, s, 2),
         '3x3_AvgPooling': lambda inc, outc, s: nn.AvgPool2d(3, stride=s, padding=1, count_include_pad=False),
         '3x3_MaxPooling': lambda inc, outc, s: nn.MaxPool2d(3, stride=s, padding=1),
+
+
     })
     return [
         name2ops[name](in_channels, out_channels, stride) for name in candiate_ops

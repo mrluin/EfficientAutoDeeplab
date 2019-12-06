@@ -154,6 +154,9 @@ def main(args):
     # 2. get configs, and load config  completed
     # 3. resume checkpoint             completed
 
+
+    # TODO: have issue in resume semantics. After resume, it will allocate more GPU memory than the normal one, which will raise OOM in search phase.
+
     if args.resume:
         if os.path.exists(args.resume_file): # resume_file :: path to EXP-time
             logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
