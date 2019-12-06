@@ -16,18 +16,18 @@ def obtain_retrain_args():
     parser.add_argument('--gpu_ids', type=int, default=0)
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--workers', type=int, default=8)
-    parser.add_argument('--search_space', type=str, choices=['autodeeplab', 'proxyless'])
+    parser.add_argument('--search_space', type=str, default='proxyless', choices=['autodeeplab', 'proxyless'])
     # for visdom
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
     parser.add_argument('--server', type=str, default=DEFAULT_HOSTNAME)
-    parser.add_argument('--compare_phase', default=['train', 'search'])
+    parser.add_argument('--compare_phase', default=['train', 'valid'])
     parser.add_argument('--elements', default=['loss', 'accuracy', 'miou', 'f1score'])
     # for resume and resume_file
     parser.add_argument('--resume_from_retrain', default=False, action='store_true', help='resume from retrain phase')
     parser.add_argument('--resume_file', type=str, default=None, help='path to retrain resume file')
     #parser.add_argument('--resume_from_search', default=False, action='store_true', help='if true, resume from configs and checkpoint from search phase')
-    parser.add_argument('--checkpint_file', type=str, default=None, help='to root path of related checkpoint path in search space')
+    parser.add_argument('--checkpoint_file', type=str, default=None, help='start retrain phase according to search phase')
     ''' run config '''
     parser.add_argument('--save_path', type=str, default='/home/jingweipeng/ljb/WHUBuilding', help='root dir of dataset')
     parser.add_argument('--dataset', typpe=str, default='WHUBuilding', choices=['WHUBuilding'])

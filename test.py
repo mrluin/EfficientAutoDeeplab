@@ -59,6 +59,9 @@ def save_configs(configs, save_path, phase):
 
 args = obtain_train_search_args()
 
+
+args.__dict__['path'] = '123'
+print(args.path)
 #save_configs(args.__dict__, './', 'test')
 
 with open('./test.config', 'r') as f:

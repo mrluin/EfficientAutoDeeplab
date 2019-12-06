@@ -14,7 +14,7 @@ from models.gumbel_super_network import GumbelAutoDeepLab
 from run_manager import RunConfig
 from nas_manager import ArchSearchConfig, ArchSearchRunManager
 from configs.train_search_config import obtain_train_search_args
-from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir
+from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir, configs_resume
 from utils.common import save_configs
 from utils.flop_benchmark import get_model_infos
 from utils.logger import prepare_logger, display_all_families_information
@@ -27,17 +27,27 @@ def main(args):
     torch.backends.cudnn.deterministic = True
     # if resume is True, resume configs and checkpoint from the existing files.
     if args.resume:
-        # to EXP-time
+        # args.resume_file path to ... .../EXP-time
+        # resume experiment in a new File, rather than the same file.
+        # configs resume
         assert os.path.exists(args.resume_file), 'cannot find the resume file {:}, please re-check'.format(args.resume_file)
         config_file_path = os.path.join(args.resume_file, 'search.config')
         assert os.path.exists(config_file_path), "the path to configs file path {:} is not exists".format(config_file_path)
-        with open(config_file_path, 'r') as f:
-            config_dict = json.load(f)
-            args.__dict__.update(config_dict)
-        # TODO: modification on args.path and EXP-time
-        #EXP_time = args.resume_file.split('/')[-1] # update EXP-time when resume is True
+        f = open(config_file_path, 'r')
+        config_dict = json.load(f)
+        f.close()
+        configs_resume(args, config_dict, 'search')
+        # new EXP file initialize
+        resume_EXP_time = config_dict['path'].split('/')[-1]
+        EXP_time = time_for_file()
+        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_EXP_time))
+        os.makedirs(args.path, exist_ok=True)
+        create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+        save_configs(args.__dict__, args.path, 'search')
         logger = prepare_logger(args)
         logger.log("=> loading configs from the file '{:}' start.".format(args.resume_file), mode='info')
+        torch.set_num_threads(args.workers)
+        set_manual_seed(args.random_seed)
     else:
         # training initialization
         torch.set_num_threads(args.workers)
@@ -113,7 +123,7 @@ def main(args):
         # perform config save, for run_configs and arch_search_configs
         save_configs(args.__dict__, args.path, 'search')
         logger = prepare_logger(args)
-        logger.log('train-search phase initialization done', mode='info')
+        logger.log('=> train-search phase initialization done', mode='info')
 
     run_config = RunConfig( **args.__dict__ )
     arch_search_config = ArchSearchConfig( **args.__dict__ )
@@ -169,7 +179,8 @@ def main(args):
                 arch_search_run_manager.warmup_epoch = checkpoint['warmup_epoch']
                 logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in warmup phase".format(warm_up_checkpoint, checkpoint['warmup_epoch']), mode='info')
         else:
-            logger.log("=> can not find the file: {:} please re-confirm it\n".format(args.resume_file), mode='info')
+            logger.log("=> can not find the file: {:} please re-confirm it\n"
+                       "=> start warm-up and search from scratch... ...".format(args.resume_file), mode='info')
     else:
         logger.log("=> start warm-up and search from scratch... ...", mode='info')
 
