@@ -125,6 +125,7 @@ def main(args):
         logger = prepare_logger(args)
         logger.log('=> train-search phase initialization done', mode='info')
 
+    #print(args.optimizer_config)
     run_config = RunConfig( **args.__dict__ )
     arch_search_config = ArchSearchConfig( **args.__dict__ )
     if args.open_vis:
@@ -154,10 +155,10 @@ def main(args):
     # 3. resume checkpoint             completed
 
     if args.resume:
-        if args.resume_file.exists(): # resume_file :: path to EXP-time
+        if os.path.exists(args.resume_file): # resume_file :: path to EXP-time
             logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
-            warm_up_checkpoint = os.path.join(args.resume_file, 'checkpoint', 'seed-{:}-warm.pth'.format(args.random_seed))
-            search_checkpoint = os.path.join(args.resume_file, 'checkpoint', 'seed-{:}-search.pth'.format(args.random_seed))
+            warm_up_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-warm.pth'.format(args.random_seed))
+            search_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-search.pth'.format(args.random_seed))
             if os.path.exists(search_checkpoint): # resume checkpoint in search phase
                 checkpoint = torch.load(search_checkpoint)
                 super_network.load_state_dict(checkpoint['state_dict'])
@@ -166,16 +167,16 @@ def main(args):
                 arch_search_run_manager.arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
                 arch_search_run_manager.run_manager.monitor_metric = checkpoint['best_monitor'][0]
                 arch_search_run_manager.run_manager.best_monitor = checkpoint['best_monitor'][1]
-                arch_search_run_manager.warmup = checkpoint['warm_up']
-                arch_search_run_manager.start_epoch = checkpoint['start_epoch']
+                arch_search_run_manager.warmup = checkpoint['warmup']
+                arch_search_run_manager.start_epoch = checkpoint['start_epochs'] # pay attention:: start_epochs and warmup_epoch in nas_manager
                 logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in search phase".format(
-                    search_checkpoint, checkpoint['start_epoch']), mode='info')
+                    search_checkpoint, checkpoint['start_epochs']), mode='info')
             else: # resume checkpoint in warmup phase
                 checkpoint = torch.load(warm_up_checkpoint)
                 super_network.load_state_dict(checkpoint['state_dict'])
                 arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
                 arch_search_run_manager.run_manager.scheduler.load_state_dict(checkpoint['weight_scheduler'])
-                arch_search_run_manager.warmup = checkpoint['warm_up']
+                arch_search_run_manager.warmup = checkpoint['warmup']
                 arch_search_run_manager.warmup_epoch = checkpoint['warmup_epoch']
                 logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in warmup phase".format(warm_up_checkpoint, checkpoint['warmup_epoch']), mode='info')
         else:

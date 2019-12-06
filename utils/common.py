@@ -464,12 +464,12 @@ def convert_secs2time(epoch_time, return_str=False):
 
 def configs_resume(args, configs_dict, phase):
     if phase == 'search':
-        for key in args.keys():
+        for key in configs_dict.keys():
             if 'path' not in key and 'gpu_ids' not in key and 'resume' not in key and 'resume_file' not in key:
                 args.__dict__[key] = configs_dict[key]
         return args
     elif phase == 'retrain':
-        for key in args.keys():
+        for key in configs_dict.keys():
             if 'path' not in key and 'gpu_ids' not in key and'resume_from_retrain' not in key and 'resume_file' not in key and 'checkpoint_file' not in key:
                 args.__dict__[key] = configs_dict[key]
         return args
