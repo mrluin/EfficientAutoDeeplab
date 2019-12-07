@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from models.gumbel_cells import GumbelCell
+from exp.shared_cell.gumbel_cells import GumbelCell, proxyless, autodeeplab, my_search_space
 from modules.my_modules import MyNetwork
 from modules.operations import ASPP
 from collections import OrderedDict
@@ -29,7 +29,6 @@ class GumbelAutoDeepLab(MyNetwork):
         # TODO: authors argument is the flag used to control super network architecture. the semantics of the prev_prev_input
         # TODO: get rid of
         #self.authors = authors
-
 
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
@@ -191,15 +190,22 @@ class GumbelAutoDeepLab(MyNetwork):
         self.network_arch_parameters = nn.Parameter(1e-3 * torch.randn(self.nb_layers, 4, 3))
         self.aspp_arch_parameters = nn.Parameter(1e-3 * torch.randn(4))
 
+        if self.search_space == 'proxyless':
+            self.conv_candidates = proxyless
+        elif self.search_space == 'autodeeplab':
+            self.conv_candidates = autodeeplab
+        elif self.search_space == 'my_search_space':
+            self.conv_candidates = my_search_space
+        else:
+            raise ValueError('search space {:} is not supported'.format(self.search_space))
+        self.cell_nb_edges = len([j for i in range(self.steps) for j in range(i+2)])
+        self.cell_arch_parameters = nn.Parameter(1e-3 * torch.randn(self.cell_nb_edges, len(self.conv_candidates)))
+
         self.tau = 10
-
-        # todo
-        #self.nb_edges =
-        #self.edge2index =
-
         #self.set_bn_param(bn_momentum, bn_eps)
 
     def init_arch_params(self, init_type='normal', init_ratio=1e-3):
+        # TODO: get rid of, not used
         for param in self.arch_parameters():
             if init_type == 'normal':
                 param.data.normal_(0, init_ratio)
@@ -777,8 +783,8 @@ class GumbelAutoDeepLab(MyNetwork):
         # assert cell.cell_arch_parameters.shape == torch.Size(self.nb_edges, cell.n_choices)
         while True:
             # TODO: cell_arch_parameters shape as [nb_edges, n_choices]
-            gumbels = -torch.empty_like(cell.cell_arch_parameters).exponential_().log()
-            logits = (cell.cell_arch_parameters.log_softmax(dim=-1) + gumbels) / self.tau
+            gumbels = -torch.empty_like(self.cell_arch_parameters).exponential_().log()
+            logits = (self.cell_arch_parameters.log_softmax(dim=-1) + gumbels) / self.tau
             probs = F.softmax(logits, dim=-1)
             index = probs.max(-1, keepdim=True)[1]
             one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)

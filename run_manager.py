@@ -16,7 +16,8 @@ from utils.logger import time_string, save_checkpoint
 from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
 from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
-from models.gumbel_cells import autodeeplab, proxyless, counter
+from models.gumbel_cells import autodeeplab, proxyless, counter, my_search_space
+
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -95,6 +96,8 @@ class RunConfig:
             self.conv_candidates = proxyless
         elif self.search_space == 'counter':
             self.conv_candidates = counter
+        elif self.search_space == 'my_search_space':
+            self.conv_candidates = my_search_space
         else:
             raise ValueError('search space {:} is not support'.format(self.search_space))
         #self.conv_candidates = search_space_dict[self.search_space]

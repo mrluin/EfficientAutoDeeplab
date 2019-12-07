@@ -104,11 +104,13 @@ class ArchSearchRunManager:
         self.arch_search_config = arch_search_config
 
         # TODO: get ride of self.net.init_arch_params
+        '''
         # init architecture parameters
         self.net.init_arch_params(
             self.arch_search_config.arch_init_type,
             self.arch_search_config.arch_init_ratio
         )
+        '''
 
         # build architecture optimizer
         self.arch_optimizer = self.arch_search_config.build_optimizer(self.net.arch_parameters())

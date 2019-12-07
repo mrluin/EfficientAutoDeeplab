@@ -14,7 +14,8 @@ from utils.common import set_manual_seed, time_for_file, save_configs, create_ex
 from run_manager import RunConfig, RunManager
 from utils.logger import prepare_logger, display_all_families_information
 from utils.visdom_utils import visdomer
-from models.gumbel_cells import autodeeplab, proxyless, counter
+from models.gumbel_cells import autodeeplab, proxyless, counter, my_search_space
+
 
 def main(args):
     assert torch.cuda.is_available(), 'CUDA is not available'
@@ -44,6 +45,8 @@ def main(args):
             conv_candidates = autodeeplab
         elif args.search_space == 'proxyless':
             conv_candidates = proxyless
+        elif args.search_space == 'my_search_space':
+            conv_candidates = my_search_space
         else: raise ValueError('search space {:} is not supported'.format(args.search_space))
     else:
         # resume partial configs setting and arch_checkpoint from the search phase by default.
@@ -119,6 +122,8 @@ def main(args):
             conv_candidates = proxyless
         elif args.search_space == 'counter':
             conv_candidates = counter
+        elif args.search_space == 'my_search_space':
+            conv_candidates = my_search_space
         else:
             raise ValueError('search_space : {:} is not supported'.format(args.search_space))
 

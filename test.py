@@ -47,6 +47,7 @@ for i in range(10):
     file.write(str(aa))
     file.flush()
 '''
+'''
 import json
 import os
 from configs.train_search_config import obtain_train_search_args
@@ -68,3 +69,6 @@ with open('./test.config', 'r') as f:
     load_dict = json.load(f)
 
 print(load_dict['path'])
+'''
+print(len([j for i in range(1) for j in range(i+2)]))
+print([j for i in range(1) for j in range(i+2)])

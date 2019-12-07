@@ -16,7 +16,7 @@ def obtain_train_search_args():
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--debug', default=False, action='store_true')
     parser.add_argument('--workers', type=int, default=8)
-    parser.add_argument('--search_space', type=str, default='proxyless', choices=['autodeeplab', 'proxyless', 'counter']) # counter search space is used to debug
+    parser.add_argument('--search_space', type=str, default='proxyless', choices=['autodeeplab', 'proxyless', 'counter','my_search_space']) # counter search space is used to debug
     # for visdom
     parser.add_argument('--open_vis', default=False, action='store_true')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
