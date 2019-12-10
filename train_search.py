@@ -26,7 +26,7 @@ def main(args):
     torch.backends.cudnn.benchmark     = False
     torch.backends.cudnn.deterministic = True
     # if resume is True, resume configs and checkpoint from the existing files.
-    if args.resume:
+    if args.search_resume:
         # args.resume_file path to ... .../EXP-time
         # resume experiment in a new File, rather than the same file.
         # configs resume
@@ -139,9 +139,14 @@ def main(args):
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
         '''
+    '''
     from exp.autodeeplab.auto_deeplab import AutoDeeplab
     super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,
                                 args.nb_classes, args.nb_layers, args.search_space, logger, affine=False)
+    '''
+    from exp.fixed_network_level.supernetwork import FixedNetwork
+    super_network = FixedNetwork(args.filter_multiplier, args.block_multiplier, args.steps, args.nb_classes,
+                                 args.nb_layers, args.search_space, logger, affine=False)
 
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
@@ -164,7 +169,7 @@ def main(args):
 
     # TODO: have issue in resume semantics. After resume, it will allocate more GPU memory than the normal one, which will raise OOM in search phase.
 
-    if args.resume:
+    if args.search_resume:
         if os.path.exists(args.resume_file): # resume_file :: path to EXP-time
             logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
             warm_up_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-warm.pth'.format(args.random_seed))

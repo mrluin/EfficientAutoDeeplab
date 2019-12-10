@@ -39,6 +39,7 @@ class RunConfig:
                  search_space,
                  #conv_candidates,
                  actual_path = None, cell_genotypes= None,
+                 search_resume = False, retrain_resume = False, evaluation = False,
                  **kwargs):
 
         # actual_path and cell_genotypes are used in retrain-phase
@@ -104,6 +105,12 @@ class RunConfig:
 
         self.actual_path = actual_path
         self.cell_genotypes = cell_genotypes
+
+        self.search_resume = search_resume
+        self.retrain_resume = retrain_resume
+        self.evaluation = evaluation
+
+
 
         self._data_provider = None
         self._train_iter, self._valid_iter, self._test_iter = None, None, None
@@ -284,7 +291,15 @@ class RunManager:
         self.start_epoch = 0
 
         # initialize model
-        self.model.init_model(self.run_config.model_init, self.run_config.init_div_groups)
+        # 1. add test flag
+        # 2. don't perform initialization in resume case (search, retrain), and in evaluation case.
+        if self.run_config.search_resume == False and self.run_config.retrain_resume == False and self.run_config.evaluation == False:
+            self.model.init_model(self.run_config.model_init, self.run_config.init_div_groups)
+            self.logger.log('=> SuperNetwork operation weight initialization ... ... ', mode='info')
+        else:
+            self.logger.log('=> SuperNetwork operation weight has resume from checkpoint file, skip initialization ... ... ', mode='info')
+
+
         if torch.cuda.is_available():
             self.device = torch.device('cuda:{}'.format(self.run_config.gpu_ids))
             print('Device: {}'.format(self.device))
@@ -369,7 +384,7 @@ class RunManager:
 
         print('=' * 30 + '=>\tLoaded Checkpoint {}'.format(checkpoint_file))
 
-    def validate(self, epoch, is_test=False, use_train_mode=False):
+    def validate(self, epoch=None, is_test=False, use_train_mode=False):
         # 1. super network viterbi_decodde, get actual_path
         # 2. cells genotype decode, which are on the actual_path in the super network
         # 3. according to actual_path and cells genotypes, construct the best network.

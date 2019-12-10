@@ -23,7 +23,7 @@ def main(args):
     torch.backends.cudnn.benchmark     = True
     torch.backends.cudnn.deterministic = True
 
-    if args.resume_from_retrain:
+    if args.retrain_resume:
         config_file_path = os.path.join(args.resume_file, 'retrain.config')
         assert os.path.exists(config_file_path), 'cannot find config_file {:} from the last retrain phase'.format(config_file_path)
         f = open(config_file_path, 'r')
@@ -135,7 +135,7 @@ def main(args):
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=None)
     else: vis = None
-    if args.resume_from_retrain:
+    if args.retrain_resume:
         logger.log('=> Loading checkpoint from {:} of the last retrain phase'.format(args.resume_file), mode='info')
         # checkpoint_file from the last retrain phase.
         checkpoint_path = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-retrain.pth'.format(args.random_seed))
@@ -206,7 +206,7 @@ def main(args):
 
 if __name__ == '__main__':
     args = obtain_retrain_args()
-    if args.resume_from_retrain:
+    if args.retrain_resume:
         assert os.path.exists(args.resume_file), 'cannot find resume_file {:} from the last retrain phase'.format(args.resume_file)
     else:
         assert os.path.exists(args.checkpoint_file), 'cannot find checkpoint_file {:} from search phase'.format(args.checkpoint_file)

@@ -61,7 +61,7 @@ class FixedNetwork(MyNetwork):
         aspp_inc = int(filter_multiplier * block_multiplier * 4 / 4)
 
         # TODO: with or without ASPP
-        #self.aspp = ASPP(aspp_inc, nb_classes, dilation=16, affine=affine)
+        self.aspp = ASPP(aspp_inc, nb_classes, dilation=24, affine=affine)
 
         self.cells.append(cell0)
         self.cells.append(cell1)
@@ -138,9 +138,9 @@ class FixedNetwork(MyNetwork):
 
         count = 0
         for layer in range(self.nb_layers):
-            _result = self.cells[count](inter_features[-2], inter_features[-1])
+            _result = self.cells[count](inter_features[-2], inter_features[-1], self.cell_arch_parameters)
             inter_features.append(_result)
             count += 1
 
-        result = F.interpolate(inter_features[-1], size=size, mode='bilinear', align_corners=True)
+        result = F.interpolate(self.aspp(inter_features[-1]), size=size, mode='bilinear', align_corners=True)
         return result

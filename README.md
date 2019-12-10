@@ -1,2 +1,2 @@
-# Proxy_AutoDeepLab
-inspired by proxylessNAS, binary path applied on network level search space
+# Efficient AutoDeeplab
+Inspired by ProxylessNAS, GDAS, and AutoDeeplab.

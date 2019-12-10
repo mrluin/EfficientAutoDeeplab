@@ -103,8 +103,8 @@ class ArchSearchRunManager:
         self.run_manager = RunManager(path, super_net, logger, run_config, out_log=True)
         self.arch_search_config = arch_search_config
 
-        # TODO: get ride of self.net.init_arch_params
         '''
+        # arch_parameter init has implemented in SuperNetwork, performs initialization when construct the network.
         # init architecture parameters
         self.net.init_arch_params(
             self.arch_search_config.arch_init_type,

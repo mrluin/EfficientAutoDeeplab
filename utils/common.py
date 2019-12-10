@@ -473,4 +473,9 @@ def configs_resume(args, configs_dict, phase):
             if 'path' not in key and 'gpu_ids' not in key and'resume_from_retrain' not in key and 'resume_file' not in key and 'checkpoint_file' not in key:
                 args.__dict__[key] = configs_dict[key]
         return args
+    elif phase == 'test':
+        for key in args.__dict__.keys():
+            if 'path' not in key and 'gpu_ids' not in key and 'resume_file' not in key and 'evaluation' not in key:
+                args.__dict__[key] = configs_dict[key]
+
     else: raise ValueError('phase {:} do not supports'.format(phase))

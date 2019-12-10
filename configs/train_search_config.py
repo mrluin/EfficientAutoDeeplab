@@ -24,7 +24,7 @@ def obtain_train_search_args():
     parser.add_argument('--compare_phase', default=['train', 'search'])
     parser.add_argument('--elements', default=['loss', 'accuracy', 'miou', 'f1score'])
     # not used
-    parser.add_argument('--resume', default=False, action='store_true', help='checkpoint file if needed')
+    parser.add_argument('--search_resume', default=False, action='store_true', help='checkpoint file if needed')
     parser.add_argument('--resume_file', type=str, default=None)
     #parser.add_argument('--')
     ''' run configs, including network weight training hyperparameters '''
