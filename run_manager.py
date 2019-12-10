@@ -47,7 +47,7 @@ class RunConfig:
 
         self.epochs = epochs
         self.warmup_epochs = warmup_epochs
-        self.total_epochs = self.epochs + self.warmup_epochs
+        #self.total_epochs = self.epochs + self.warmup_epochs
         self.gpu_ids = gpu_ids
         self.workers = workers
 
@@ -144,7 +144,7 @@ class RunConfig:
             momentum, weight_decay = optimizer_params.get('momentum'), optimizer_params.get('weight_decay')
             optimizer = torch.optim.RMSprop(parameters, optimizer_config['init_lr'], momentum=momentum, weight_decay=weight_decay)
         elif optimizer_config['optimizer_type'] == 'Adam':
-            raise NotImplementedError
+            optimizer = torch.optim.Adam(parameters, optimizer_config['init_lr'])
             # has issue in Adam optimizer
             #optimizer = torch.optim.Adam(parameters, optimizer_config.init_lr, **optimizer_config.optimizer_params)
         else:
@@ -168,6 +168,9 @@ class RunConfig:
             scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma)
         elif optimizer_config['scheduler'] == 'linear':
             raise NotImplementedError
+        elif optimizer_config['scheduler'] == 'poly':
+            lambda1 = lambda epoch: pow((1 - epoch / optimizer_config['epochs']), 0.9)
+            scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)
         else:
             raise ValueError('invalid scheduler : {:}'.format(optimizer_config.scheduler))
 
@@ -485,8 +488,7 @@ class RunManager:
         epoch_time = AverageMeter()
         end = time.time()
         self.model.train()
-        # TODO: in retrain phase, should modify total_epochs
-        for epoch in range(self.start_epoch, self.run_config.total_epochs):
+        for epoch in range(self.start_epoch, self.run_config.epochs):
             self.logger.log('\n'+'-'*30+'Train epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='retrain')
             epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, self.run_config.epochs)
             self.scheduler.step(epoch)
@@ -510,7 +512,7 @@ class RunManager:
                 self.vis.visdom_update(epoch, 'miou', [miou, val_miou])
                 self.vis.visdom_update(epoch, 'f1score', [fscore, val_fscore])
             # save checkpoint
-            if (epoch+1) % self.run_config.save_ckpt_freq == 0 or (epoch+1) == self.run_config.total_epochs or is_best:
+            if (epoch+1) % self.run_config.save_ckpt_freq == 0 or (epoch+1) == self.run_config.epochs or is_best:
                 checkpoint = {
                     'state_dict'      : self.model.state_dict(),
                     'weight_optimizer': self.optimizer.state_dict(),

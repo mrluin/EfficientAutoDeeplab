@@ -37,7 +37,8 @@ my_search_space = [
     '3x3_SepFacConv2', '5x5_SepFacConv2',
     '3x3_SepFacConv4', '5x5_SepFacConv4',
     #'3x3_SepFacConv8', '5x5_SepFacConv8',
-    'Zero', 'Identity',
+    #'Zero',
+    'Identity',
 ]
 
 
@@ -254,54 +255,7 @@ class GumbelCell(MyModule):
             self.same_link_prev_prev        = ConvLayer(self.outc if ppc is None else ppc, self.outc, 1, 1, False, affine=affine)
         else:
             raise ValueError('invalid scale value {:}'.format(self.scale))
-        '''
-        # prev_prev_c :: stem0 output 32  :: used in level4-node1 / level8-node1
-        # prev_c      :: stem1 output 64  :: used in level4-node1 / level4-node2 / level8-node1 / level8-node2 / level16-node1
-        # preprocess0 does not have None case
-        if index2channel.get(self.prev_prev_scale) is not None: # is not the output of stem0 and stem1
-            self.prev_prev_c = index2channel[self.prev_prev_scale]
-            if self.prev_prev_scale == self.scale: # same
-                self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False, affine=affine)
-            elif self.prev_prev_scale == self.scale -1: # down
-                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            elif self.prev_prev_scale == self.scale - 2: # dfr
-                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            else: raise ValueError('relation error between prev_prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
 
-        else:
-            # output of stem0 and stem1, channels is set as scale
-            # level4-node1 level4-node2 level8-node1 level8-node2 level16-node1
-            self.prev_prev_c = prev_prev_scale
-            if self.layer == 0 and self.scale == 0: # level4-node1 using stem0 output as prev_prev_input, with stride2
-                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            elif self.layer == 0 and self.scale == 1: # level8-node1 using stem0 output as prev_prev_input, with stride4
-                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            elif self.layer == 1 and self.scale == 0: # level4-node2 using stem1 output as prev_prev_input, with stride1
-                self.preprocess0 = ConvLayer(self.prev_prev_c, self.outc, 1, 1, False, affine=affine)
-            elif self.layer == 1 and self.scale == 1: # level8-node2 using stem1 output as prev_prev_input, with stride2
-                self.preprocess0 = FactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            elif self.layer == 1 and self.scale == 2: # level16-node1 using stem1 output as prev_prev_input, with stride4
-                self.preprocess0 = DoubleFactorizedReduce(self.prev_prev_c, self.outc, affine=affine)
-            else: raise ValueError('relation error between prev_prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
-        # preprocess1
-        if index2channel.get(self.prev_scale) is not None:
-            self.prev_c = index2channel[self.prev_scale]
-            if self.prev_scale == self.scale + 1: # up
-                self.preprocess1 = FactorizedIncrease(self.prev_c, self.outc, affine=affine)
-            elif self.prev_scale == self.scale: # same
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False, affine=affine)
-            elif self.prev_scale == self.scale - 1: # down
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc, affine=affine)
-            else: raise ValueError('relation error in prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
-        else:
-            # level4-node1 and level8-node1
-            self.prev_c = prev_scale
-            if self.layer == 0 and self.scale == 0: # level4-node1 using stem1 output as prev_input, with stride1
-                self.preprocess1 = ConvLayer(self.prev_c, self.outc, 1, 1, False, affine=affine)
-            elif self.layer == 0 and self.scale == 1: # level8-node1 using stem1 output as prev_input, with stride2
-                self.preprocess1 = FactorizedReduce(self.prev_c, self.outc, affine=affine)
-            else: raise ValueError('relation error between prev_scale and current scale layer-scale {:}-{:}'.format(self.layer, self.scale))
-        '''
         # todo, new attribute nn.ModuleDict()
         self.ops = nn.ModuleDict()
         # i::node_index, j::previous_node_index
@@ -351,8 +305,31 @@ class GumbelCell(MyModule):
 
     def forward(self, s0, s1, weights):
         # s0 and s1 always exist!
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
+        current_size = 512 / self.index2scale[self.scale]
+        if s0 is not None:
+            s0_size = s0[0].size()[2]
+            if s0_size / current_size == 4.: # double down
+                s0 = self.double_down_link_prev_prev(s0)
+            elif s0_size / current_size == 2.: # down
+                s0 = self.down_link_prev_prev(s0)
+            elif s0_size / current_size == 1.: # same
+                s0 = self.same_link_prev_prev(s0)
+            elif s0_size / current_size == 1/2: # up
+                s0 = self.up_link_prev_prev(s0)
+            elif s0_size / current_size == 1/4: # double up
+                s0 = self.double_up_link_prev_prev(s0)
+            else:
+                raise ValueError('invalid size relation s0_size / current_size = {:} in gdas_forward pass'.format(s0_size / current_size))
+        if s1 is not None:
+            s1_size = s1[0].size()[2]
+            if s1_size / current_size == 2.: # down
+                s1 = self.down_link_prev(s1)
+            elif s1_size / current_size == 1.: # same
+                s1 = self.same_link_prev(s1)
+            elif s1_size / current_size == 1/2: # up
+                s1 = self.up_link_prev(s1)
+            else:
+                raise ValueError('invalid size relation s1_size / current_size = {:} in gdas_forward pass'.format(s1_size / current_size))
 
         states = [s0, s1] # features of node0 and node1
 

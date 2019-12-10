@@ -15,7 +15,7 @@ from modules.operations import ASPP, FactorizedIncrease, ConvLayer, FactorizedRe
     Zero, SepConv, DilConv, MobileInvertedResidualBlock, DoubleFactorizedIncrease, DoubleFactorizedReduce
 from run_manager import RunConfig
 from utils.common import get_prev_c
-from models.gumbel_cells import build_candidate_ops, proxyless, autodeeplab,counter
+from models.gumbel_cells import build_candidate_ops, proxyless, autodeeplab,counter, my_search_space
 __all__ = ['NewGumbelCell', 'NewGumbelAutoDeeplab']
 
 class NewGumbelCell(MyModule):
@@ -50,6 +50,8 @@ class NewGumbelCell(MyModule):
             self.conv_candidates = proxyless
         elif self.search_space == 'counter':
             self.conv_candidates = counter
+        elif self.search_space == 'my_search_space':
+            self.conv_candidates = my_search_space
         else:
             raise ValueError('search space {:} is not support'.format(self.search_space))
         #self.conv_candidates = search_space_dict[self.search_space]
@@ -102,21 +104,31 @@ class NewGumbelCell(MyModule):
         self.ops = nn.ModuleDict()
         # fix issue of construct new_cell of proxyless search space
         if self.search_space == 'proxyless':
-            for node_str, select_op_index in self.genotype:
+            for node_str, select_op_index in self.genotype[1][0]:
                 conv_op = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
                                             stride=1, ops_order='act_weight_bn', affine=affine)
                 shortcut = Identity(self.outc, self.outc)
                 self.ops[node_str] = MobileInvertedResidualBlock(conv_op, shortcut)
-        elif self.search_space == 'autodeeplab':
-            for node_str, select_op_index in self.genotype:
+        elif self.search_space == 'autodeeplab' or self.search_space == 'my_search_space':
+            # TODO: have modification on genotypes pass ( cell_index, [[(edge_str), (operation)], ] )
+            #print(self.genotype) # (cell_index, [[('edge_str', index), ('edge_str', index), ], ])
+            for node_str, select_op_index in self.genotype[1][0]:
                 # operation name -> conv_candidates
                 operation = build_candidate_ops([self.conv_candidates[select_op_index]], self.outc, self.outc,
                                                 stride=1, ops_order='act_weight_bn', affine=affine)
-                self.ops[node_str] = operation
+
+                self.ops[node_str] = operation[0]
         else:
             raise ValueError('search space {:} is not support'.format(self.search_space))
         self.final_conv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
 
+
+        self.included_edges = []
+        for genotype_for_each_node in self.genotype[1]:
+            for edge_str, _ in genotype_for_each_node:
+                self.included_edges.append(edge_str)
+
+        print(self.included_edges)
     def forward(self, s0, s1):
 
         s0_size = s0[0].size()[2]
@@ -156,7 +168,7 @@ class NewGumbelCell(MyModule):
             new_states = []
             for j in range(i): # all previous node for each node i
                 node_str = '{:}<-{:}'.format(i,j)
-                if node_str in self.genotype[:, 0]:
+                if node_str in self.included_edges:
                     # the current edge is selected
                     related_hidden = states[j]
                     # forward :: MBConvResidualBlock -> MixedOp -> single_forward
@@ -185,30 +197,38 @@ class NewGumbelAutoDeeplab(MyNetwork):
 
         # three init stems
         self.stem0 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
+            ('conv', nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(16)),
             ('relu', nn.ReLU(inplace=True))
         ]))
         # remove 'relu' for self.stem1 # ('relu', nn.ReLU(inplace=True))
         self.stem1 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
+            ('conv', nn.Conv2d(16, 16, 3, stride=1, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(16)),
         ]))
         # change the order of the stem2
         self.stem2 = nn.Sequential(OrderedDict([
             ('relu', nn.ReLU(inplace=True)),
-            ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(64)),
+            ('conv', nn.Conv2d(16, 32, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(32)),
         ]))
 
         self.cells = nn.ModuleList()
-        prev_prev_c = 32
-        prev_c = 64
+        prev_prev_c = 16
+        prev_c = 32
         for layer in range(self.nb_layers):
             next_scale = int(self.actual_path[layer])
             cell_genotype = self.cell_genotypes[layer] # next_scale cell genotype
-            cell = NewGumbelCell(layer, filter_multiplier, block_multiplier, steps, next_scale,
-                                 cell_genotype, search_space, ppc=prev_prev_c, pc=prev_c, affine=affine)
+            if layer == 0:
+                cell = NewGumbelCell(layer, filter_multiplier, block_multiplier, steps, next_scale,
+                                     cell_genotype, search_space, ppc=prev_prev_c, pc=prev_c, affine=affine)
+            elif layer == 1:
+                cell = NewGumbelCell(layer, filter_multiplier, block_multiplier, steps, next_scale,
+                                     cell_genotype, search_space, ppc=prev_c, pc=None, affine=affine)
+            else:
+                cell = NewGumbelCell(layer, filter_multiplier, block_multiplier, steps, next_scale,
+                                     cell_genotype, search_space, ppc=None, pc=None, affine=affine)
+
             self.cells.append(cell)
 
         self.out0 = int(self.filter_multiplier * self.block_multiplier * 4 / 4)

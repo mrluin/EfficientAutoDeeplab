@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from models.gumbel_cells import GumbelCell
+from models.gumbel_cells import GumbelCell, proxyless, autodeeplab, my_search_space
 from modules.my_modules import MyNetwork
 from modules.operations import ASPP
 from collections import OrderedDict
@@ -38,6 +38,14 @@ class GumbelAutoDeepLab(MyNetwork):
         self.nb_classes = nb_classes
         self.search_space = search_space
         #self.conv_candidates = conv_candidates
+        if search_space == 'proxyless':
+            self.conv_candidates = proxyless
+        elif search_space == 'autodeeplab':
+            self.conv_candidates = autodeeplab
+        elif search_space == 'my_search_space':
+            self.conv_candidates = my_search_space
+        else:
+            raise ValueError('search_space {:} is not supported'.format(search_space))
         self.logger = logger
 
         self.cells = nn.ModuleList()
@@ -207,6 +215,75 @@ class GumbelAutoDeepLab(MyNetwork):
                 param.data.uniform_(-init_ratio, init_ratio)
             else:
                 raise ValueError('invalid arch_parameters init_type {:}'.format(init_type))
+
+    def calculate_entropy(self, single_path, eps=1e-8):
+        # 1. get entropy of the sampled path.
+        # 2. calculate entropy for each cell.
+        # 3. calculate entropy for node in the sampled path.
+        # TODO: used in entropy regularized loss
+
+        entropy = 0
+        current_scale = 0
+        for layer in range(self.nb_layers):
+            next_scale = int(single_path[layer])
+            cell_index = get_cell_index(layer, current_scale, next_scale)
+
+            # cell entropy
+            cell_probs = F.softmax(self.cells[cell_index].cell_arch_parameters, -1)
+            cell_log_probs = torch.log(cell_probs + eps)
+            cell_entropy =  - torch.sum(torch.mul(cell_probs, cell_log_probs)) / torch.log(len(self.conv_candidates))
+            # network node entropy
+            if next_scale == 0:
+                if layer == 0:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][1], -1) * (1 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(1)
+                else:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][1:], -1) * (2 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(2)
+            elif next_scale == 1:
+                if layer == 0:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(1)
+                elif layer == 1:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(2)
+                else:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale], -1)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(3)
+            elif next_scale == 2:
+                if layer == 1:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(1)
+                elif layer == 2:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy = 1 - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(2)
+                else:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale], -1)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(3)
+            elif next_scale == 3:
+                if layer == 2:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(1)
+                else:
+                    network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                    network_log_probs = torch.log(network_probs + eps)
+                    network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) / torch.log(2)
+            else: raise ValueError('invalid scale value {:}'.format(next_scale))
+
+            entropy += cell_entropy
+            entropy += network_entropy
+            current_scale = next_scale
+
+        return entropy
 
     def set_tau(self, tau):
         self.tau = tau
@@ -458,6 +535,7 @@ class GumbelAutoDeepLab(MyNetwork):
                     # max weight for each edge tuple(node_str, weight)
                     xlist.append((node_str, select_op_index))
                 # get the previous two
+                # TODO: has issue in select two incoming edges for each node, only one node :: select all incoming edges.
                 previous_two = sorted(xlist, key=lambda x: -weight[edge2index[node_str]][x[1]])[:2] # (node_str, select_op_index)
                 genotypes.append(previous_two) # (node_str, select_op_index)
             return genotypes

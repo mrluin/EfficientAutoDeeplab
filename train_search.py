@@ -132,10 +132,17 @@ def main(args):
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=None)
     else: vis = None
+
     # args.bn_momentum and args.bn_eps are not used
+    '''
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
+        '''
+    from exp.autodeeplab.auto_deeplab import AutoDeeplab
+    super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,
+                                args.nb_classes, args.nb_layers, args.search_space, logger, affine=False)
+
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
 

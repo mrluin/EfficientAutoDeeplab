@@ -204,6 +204,10 @@ class GumbelAutoDeepLab(MyNetwork):
         self.tau = 10
         #self.set_bn_param(bn_momentum, bn_eps)
 
+        self.total_nodes = 2 + self.steps
+        self.edge2index = self.cells[0].edge2index
+
+
     def init_arch_params(self, init_type='normal', init_ratio=1e-3):
         # TODO: get rid of, not used
         for param in self.arch_parameters():
@@ -441,23 +445,24 @@ class GumbelAutoDeepLab(MyNetwork):
 
         return actual_path
 
-    def cell_genotype_decode(self, cell):
+    def cell_genotype_decode(self):
+        # TODO: need modification in decode formulars of shared-cell
         genotypes = []
         with torch.no_grad():
-            total_nodes = cell.total_nodes
-            edge2index = cell.edge2index
-            weight = cell.cell_arch_parameters
-            ops = cell.ops
+            total_nodes = self.total_nodes
+            edge2index = self.edge2index
+            weight = self.cell_arch_parameters
+            #ops = cell.ops
             for i in range(2, total_nodes): # for each node in a cell, excluding the first two nodes.
                 xlist = []
                 for j in range(i):
                     node_str = '{:}<-{:}'.format(i, j)
                     branch_index = edge2index[node_str] # edge_index
                     # pay attention, include None operation.
-                    if ops[node_str] is None:
-                        assert j == 0, 'None operation, wrong edge.'
-                        #xlist.append((node_str, None)) # excluding None edge.
-                        #continue
+                    #if ops[node_str] is None:
+                    #    assert j == 0, 'None operation, wrong edge.'
+                    #    #xlist.append((node_str, None)) # excluding None edge.
+                    #    #continue
                     #else:
                     mixed_op_weight = weight[branch_index]
                     select_op_index = mixed_op_weight.argmax().item() # for each edge, then get the previous two
@@ -472,7 +477,8 @@ class GumbelAutoDeepLab(MyNetwork):
         #print('\t=> Super Network decoding ... ... ')
         actual_path = self.viterbi_decode_based_constraint()
         #print('acutal_path', actual_path)
-        cell_genotypes = []
+        cell_genotypes = self.cell_genotype_decode()
+        '''
         current_scale = 0
         for layer in range(self.nb_layers):
             next_scale = int(actual_path[layer])
@@ -481,6 +487,7 @@ class GumbelAutoDeepLab(MyNetwork):
             cell_genotypes.append((cell_index, genotypes))
             current_scale = next_scale
         assert len(cell_genotypes) == 12, 'invalid length of cell_genotype'
+        '''
         '''
         #print('cell_genotypes')
         for layer in range(self.nb_layers):

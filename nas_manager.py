@@ -246,7 +246,9 @@ class ArchSearchRunManager:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end)
 
-                logits = self.net.single_path_forward(datas)
+                #logits = self.net.single_path_forward(datas)
+                logits = self.net(datas)
+
                 loss = self.run_manager.criterion(logits, targets)
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -366,7 +368,8 @@ class ArchSearchRunManager:
                     else:
                         raise ValueError('do not support cpu version')
                     data_time.update(time.time() - end)
-                    logits = self.net.single_path_forward(datas) # super network gdas forward
+                    #logits = self.net.single_path_forward(datas) # super network gdas forward
+                    logits = self.net(datas) # super network gdas forward
                     # loss
                     loss = self.run_manager.criterion(logits, targets)
                     # metrics and update
@@ -395,7 +398,8 @@ class ArchSearchRunManager:
                         raise ValueError('do not support cpu version')
 
                     #valid_data_time.update(time.time()-end_valid)
-                    logits = self.net.single_path_forward(valid_datas)
+                    #logits = self.net.single_path_forward(valid_datas)
+                    logits = self.net(valid_datas)
                     loss = self.run_manager.criterion(logits, valid_targets)
                     # metrics and update
                     valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -484,7 +488,7 @@ class ArchSearchRunManager:
             #    'arch_optimizer': self.arch_optimizer.state_dict(),
             #}, is_best=True, checkpoint_file_name=None)
             # TODO: have modification on checkpoint_save semantics
-            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch + 1) == self.run_manager.run_config.total_epochs or is_best:
+            if (epoch + 1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch + 1) == self.run_manager.run_config.epochs or is_best:
                 checkpoint = {
                     'state_dict'      : self.net.state_dict(),
                     'weight_optimizer': self.run_manager.optimizer.state_dict(),
