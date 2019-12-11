@@ -44,7 +44,7 @@ def obtain_retrain_args():
     # train optimization
     parser.add_argument('--init_lr', type=float, default=5e-4) # 5e-4 for Adam
     # scheduler and scheduler params
-    parser.add_argument('--scheduler', type=str, default='cosine', choices=['multistep', 'cosine', 'exponential', 'linear'])
+    parser.add_argument('--scheduler', type=str, default='poly', choices=['multistep', 'cosine', 'exponential', 'linear', 'poly'])
     parser.add_argument('--T_max', type=float, default=None) # for cosine
     parser.add_argument('--eta_min', type=float, default=0.001) # for cosine
     parser.add_argument('--milestones', type=float, default=None) # for multisteps
@@ -63,6 +63,10 @@ def obtain_retrain_args():
     parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
     parser.add_argument('--label_smoothing', type=float, default=0.)
+    parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log'])
+    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param
+    parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
+    parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
     # monitor and frequency
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
     parser.add_argument('--save_ckpt_freq', type=int, default=5)

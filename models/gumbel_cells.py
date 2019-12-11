@@ -32,13 +32,14 @@ counter = [
     '3x3_DilConv'
 ]
 # non-bottleneck architecture
+# TODO: in sufficient training, use bottleneck layer by default
 my_search_space = [
     '3x3_SepFacConv1', '5x5_SepFacConv1' ,
     '3x3_SepFacConv2', '5x5_SepFacConv2',
     '3x3_SepFacConv4', '5x5_SepFacConv4',
     #'3x3_SepFacConv8', '5x5_SepFacConv8',
     #'Zero',
-    'Identity',
+    #'Identity',
 ]
 
 

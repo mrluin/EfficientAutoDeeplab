@@ -47,7 +47,15 @@ def main(args):
         conv_candidates = my_search_space
     else:
         raise ValueError('search space {:} is not supported'.format(args.search_space))
-
+    # related to entropy constraint loss
+    if args.reg_loss_type == 'add#linear':
+        args.reg_loss_params = {'lambda': args.reg_loss_lambda}
+    elif args.reg_loss_type == 'mul#log':
+        args.reg_loss_params = {
+            'alpha': args.reg_loss_alpha,
+            'beta': args.reg_loss_beta}
+    else:
+        args.reg_loss_params = None
     run_config = RunConfig(**args.__dict__)
     checkpoint_file = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-retrain-best.pth'.format(args.random_seed))
     assert os.path.join(checkpoint_file), 'cannot find checkpoint file {:}'.format(checkpoint_file)

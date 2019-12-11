@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from tqdm import tqdm
-
+import torch
 
 
 def calculate_weights_labels(path, dataset, dataloader, nb_classes):
@@ -27,3 +27,88 @@ def calculate_weights_labels(path, dataset, dataloader, nb_classes):
 
     return ret
 
+def calculate_network_level_search_space_with_constraint():
+    # 1189 * 36 = 42804
+
+    counter = torch.zeros((13, 4), dtype=torch.int)
+    counter[0][0]=1
+    for i in range(1, 13):
+        for j in range(4):
+            if i == 1:
+                if j == 0: counter[i][j] = counter[i-1][j]
+                elif j == 1: counter[i][j] = counter[i-1][j-1]
+            elif i == 2:
+                if j == 0:
+                    counter[i][j] = counter[i-1][j]
+                elif j == 1:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                elif j == 2:
+                    counter[i][j] = counter[i-1][j-1]
+            elif i == 3:
+                if j == 0:
+                    counter[i][j] = counter[i-1][j]
+                elif j == 1:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                elif j == 2:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                elif j == 3:
+                    counter[i][j] = counter[i-1][j-1]
+            else:
+                if i <= 8:
+                    if j == 0:
+                        counter[i][j] = counter[i-1][j]
+                    elif j == 1:
+                        counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                    elif j == 2:
+                        counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                    elif j == 3:
+                        counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                else:
+                    if j == 0:
+                        counter[i][j] = counter[i-1][j] + counter[i-1][j+1]
+                    elif j == 1:
+                        counter[i][j] = counter[i-1][j+1] + counter[i-1][j]
+                    elif j == 2:
+                        counter[i][j] = counter[i-1][j+1] + counter[i-1][j]
+                    elif j == 3:
+                        counter[i][j] =  counter[i-1][j]
+    print(counter)
+    print(sum(counter[-1, :]))
+
+def calculate_network_level_search_space():
+    # 75025 * 36 = 2700900
+
+    counter = torch.zeros((13,4), dtype=torch.int)
+    counter[0][0] = 1
+    for i in range(1, 13):
+        for j in range(4):
+            if i == 1:
+                if j == 0: counter[i][j] = counter[i-1][j]
+                elif j == 1: counter[i][j] = counter[i-1][j-1]
+            elif i == 2:
+                if j == 0:
+                    counter[i][j] = counter[i-1][j] + counter[i-1][j+1]
+                elif j == 1:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                elif j == 2:
+                    counter[i][j] = counter[i-1][j-1]
+            elif i == 3:
+                if j == 0:
+                    counter[i][j] = counter[i-1][j] + counter[i-1][j+1]
+                elif j == 1:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j] + counter[i-1][j+1]
+                elif j == 2:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+                elif j == 3:
+                    counter[i][j] = counter[i-1][j-1]
+            else:
+                if j == 0:
+                    counter[i][j] = counter[i-1][j] + counter[i-1][j+1]
+                elif j == 1:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j] + counter[i-1][j+1]
+                elif j == 2:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j] + counter[i-1][j+1]
+                elif j == 3:
+                    counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
+    print(counter)
+    print(sum(counter[-1, :]))

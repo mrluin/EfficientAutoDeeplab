@@ -69,6 +69,7 @@ with open('./test.config', 'r') as f:
 
 print(load_dict['path'])
 '''
+'''
 print(len([j for i in range(1) for j in range(i+2)]))
 print([j for i in range(1) for j in range(i+2)])
-
+'''

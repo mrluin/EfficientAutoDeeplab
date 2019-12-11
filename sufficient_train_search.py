@@ -1,8 +1,8 @@
-'''
-@author: Jingbo Lin
-@contact: ljbxd180612@gmail.com
-@github: github.com/mrluin
-'''
+# ===============================
+# author : Jingbo Lin
+# contact: ljbxd180612@gmail.com
+# github : github.com/mrluin
+# ===============================
 
 import os
 import torch
@@ -10,9 +10,12 @@ import glob
 import random
 import json
 
-from models.gumbel_super_network import GumbelAutoDeepLab
-from run_manager import RunConfig
-from nas_manager import ArchSearchConfig, ArchSearchRunManager
+
+
+from exp.sufficient_update.run_manager import RunConfig
+from exp.sufficient_update.gumbel_super_network import GumbelAutoDeepLab
+from exp.sufficient_update.nas_manager import ArchSearchConfig, ArchSearchRunManager
+
 from configs.train_search_config import obtain_train_search_args
 from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir, configs_resume
 from utils.common import save_configs

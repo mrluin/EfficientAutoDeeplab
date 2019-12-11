@@ -41,14 +41,14 @@ def obtain_train_search_args():
     parser.add_argument('--crop_size', type=int, default=512, help='size of cropped patches')
     # optimization
     parser.add_argument('--init_lr', type=float, default=0.025)
-    parser.add_argument('--scheduler', type=str, default='cosine', choices=['multistep', 'cosine', 'exponential', 'linear'])
+    parser.add_argument('--scheduler', type=str, default='cosine', choices=['multistep', 'cosine', 'exponential', 'linear', 'poly'])
     parser.add_argument('--T_max', type=float, default=None, help='param of cosine') #scheduler param1
     parser.add_argument('--eta_min', type=float, default=0.001, help='param of cosine, min_learning_rate') #scheduler param2
     parser.add_argument('--milestones', type=float, default=None, help='param of multistep') #scheduler param3
     parser.add_argument('--gammas', type=float, default=None, help='param of multistep') #scheduler param4
     parser.add_argument('--gamma', type=float, default=None, help='param of exponential') #scheduler param5
     parser.add_argument('--min_lr', type=float, default=None, help='param of linear') #scheduler param6
-    parser.add_argument('--weight_optimizer_type', type=str, default='SGD', choices=['SGD','RMSprop'])
+    parser.add_argument('--weight_optimizer_type', type=str, default='SGD', choices=['SGD','RMSprop', 'Adam'])
     parser.add_argument('--momentum', type=float, default=0.9) #optim param1
     parser.add_argument('--nesterov', type=bool, default=True) #optim param2
     parser.add_argument('--weight_decay', type=float, default=0.0005) #optim param3
@@ -58,6 +58,10 @@ def obtain_train_search_args():
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
     parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--label_smoothing', type=float, default=0.)  # criterion param1
+    parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None'])
+    parser.add_argument('--reg_loss_lambda', type=float, default=3e-1) # reg param # TODO: for entropy reg
+    parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
+    parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
     # print and save freq
     parser.add_argument('--monitor', type=str, default='max#miou', choices=['max#miou', 'max#fscore'])
     parser.add_argument('--save_ckpt_freq', type=int, default=5)
@@ -103,14 +107,12 @@ def obtain_train_search_args():
     # TODO related hardware constraint, None by default
     #parser.add_argument('--target_hardware', type=str, default=None, choices=['mobile', 'cpu', 'gpu8', 'flops', None])
 
+    parser.add_argument('--sample_arch_frequency', type=int, default=30, help='how often sample a new architecture to train operation weight')
     parser.add_argument('--arch_param_update_frequency', type=int, default=1, help='how often update arch parameters, iterations')
     parser.add_argument('--arch_param_update_steps', type=int, default=1, help='how many times performing update when updating arch_params')
     #parser.add_argument('--grad_binary_mode', type=str, default='full_v2', choices=['full', 'full_v2', 'two'], help='forward and backward mode')
     #parser.add_argument('--grad_data_batch', type=int, default=None, help='batch_size of valid set (from training set)')
-    parser.add_argument('--reg_loss_type', type=str, default='mul#log', choices=['add#linear', 'mul#log'])
-    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param
-    parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
-    parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
+
 
     args = parser.parse_args()
     return args

@@ -38,8 +38,10 @@ class RunConfig:
                  use_unbalanced_weights,
                  search_space,
                  #conv_candidates,
+                 reg_loss_type, reg_loss_params,
                  actual_path = None, cell_genotypes= None,
                  search_resume = False, retrain_resume = False, evaluation = False,
+
                  **kwargs):
 
         # actual_path and cell_genotypes are used in retrain-phase
@@ -102,6 +104,9 @@ class RunConfig:
         else:
             raise ValueError('search space {:} is not support'.format(self.search_space))
         #self.conv_candidates = search_space_dict[self.search_space]
+
+        self.reg_loss_type = reg_loss_type
+        self.reg_loss_params = reg_loss_params
 
         self.actual_path = actual_path
         self.cell_genotypes = cell_genotypes
@@ -339,6 +344,25 @@ class RunManager:
         assert self.monitor_metric in ['miou', 'fscore'], 'invalid monitor metric'
         best_monitor = math.inf if monitor_mode == 'min' else -math.inf
         return best_monitor
+
+
+    def add_regularization_loss(self, ce_loss, reg_value=None):
+        if reg_value is None:
+            return ce_loss
+
+        if self.run_config.reg_loss_type == 'add#linear':
+            reg_lambda = self.run_config.reg_loss_params['lambda']
+            reg_loss = reg_lambda * reg_value
+            return ce_loss + reg_loss
+        elif self.run_config.reg_loss_type == 'mul#log':
+            raise NotImplementedError
+            #alpah = self.run_config.reg_loss_params['alpha']
+            #beta = self.run_config.reg_loss_params['beta']
+        elif self.run_config.reg_loss_type == 'none':
+            return ce_loss
+        else:
+            raise ValueError('reg_loss_type: {:} is not supported'.format(self.run_config.reg_loss_type))
+
 
     ''' net info '''
     def net_flops(self):

@@ -360,7 +360,7 @@ class ArchSearchRunManager:
 
             end = time.time()
             for i, (datas, targets) in enumerate(data_loader):
-                #if i == 59: break
+                #if i == 29: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -454,9 +454,11 @@ class ArchSearchRunManager:
 
             self.logger.log('<<<---------->>> Super Network decoding <<<---------->>> ', mode='search')
             actual_path, cell_genotypes = self.net.network_cell_arch_decode()
+            #print(cell_genotypes)
             new_genotypes = []
             for _index, genotype in cell_genotypes:
                 xlist = []
+                print(_index, genotype)
                 for edge_genotype in genotype:
                     for (node_str, select_index) in edge_genotype:
                         xlist.append((node_str, self.run_manager.run_config.conv_candidates[select_index]))

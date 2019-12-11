@@ -10,6 +10,8 @@ from modules.my_modules import MyNetwork
 from models.gumbel_cells import proxyless, autodeeplab, my_search_space, GumbelCell
 from collections import OrderedDict
 from modules.operations import ASPP
+from utils.common import get_cell_index
+
 
 class FixedNetwork(MyNetwork):
     def __init__(self,
@@ -82,6 +84,7 @@ class FixedNetwork(MyNetwork):
         self.total_nodes = 2 + self.steps
         self.edge2index = cell0.edge2index
 
+        self.tau = 10
 
     def get_cell_arch_parameters(self):
         for name, param in self.named_parameters():
@@ -99,7 +102,6 @@ class FixedNetwork(MyNetwork):
                 yield param
 
     def cell_genotype_decode(self):
-
         genotypes = []
         with torch.no_grad():
             total_nodes = self.total_nodes
@@ -111,20 +113,27 @@ class FixedNetwork(MyNetwork):
                     node_str = '{:}<-{:}'.format(i, j)
                     branch_index = edge2index[node_str]
                     mixed_op_weight = weight[branch_index]
-                    select_op_index = mixed_op_weight.argmax().item(
-                        0)  # select operation with the highest prob for each edge.
+                    select_op_index = mixed_op_weight.argmax().item()  # select operation with the highest prob for each edge.
                     xlist.append((node_str, select_op_index))  # the highest prob operation for all incoming edges.
                 previous_two = sorted(xlist, key=lambda x: -weight[edge2index[node_str]][x[1]])[:2]  # select the highest two for each node.
                 genotypes.append(previous_two)
             return genotypes
 
+    def set_tau(self, tau):
+        self.tau = tau
+
+    def get_tau(self):
+        return self.tau
+
     def network_cell_arch_decode(self):
         # network-level structure is fixed
         # decode cell-level structure
+        # TODO: pay attention, used in shared cell structure
+        cell_genotypes = []
         actual_path = [1,1,1,1,2,2,2,2,3,2,1,0]
-        cell_genotype = self.cell_genotype_decode()
-
-        return actual_path, cell_genotype
+        genotypes = self.cell_genotype_decode()
+        cell_genotypes.append((0, genotypes))
+        return actual_path, cell_genotypes
 
     def forward(self, x):
 

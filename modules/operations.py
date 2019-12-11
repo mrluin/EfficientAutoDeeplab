@@ -753,7 +753,7 @@ class MobileInvertedResidualBlock(MyModule):
 class FactorizedConvBlock(MyModule):
     def __init__(self,
                  in_channels, out_channels, kernel_size,
-                 stride=1, dilation=1, affine=True, bottleneck=False):
+                 stride=1, dilation=1, affine=True, bottleneck=True):
         super(FactorizedConvBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -868,7 +868,7 @@ class FactorizedConvBlock(MyModule):
 # TODO: replace SepConv
 class SeparableConvBlock(MyModule):
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, dilation=1 ,affine=True, bottleneck=False):
+                 stride=1, dilation=1 ,affine=True, bottleneck=True):
         super(SeparableConvBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -953,7 +953,7 @@ class SeparableConvBlock(MyModule):
 
 class SepFacConvBlock(MyModule):
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, dilation=1, affine=True, bottleneck=False):
+                 stride=1, dilation=1, affine=True, bottleneck=True):
         super(SepFacConvBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels

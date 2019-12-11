@@ -127,6 +127,16 @@ def main(args):
         else:
             raise ValueError('search_space : {:} is not supported'.format(args.search_space))
 
+        # related to entropy constraint loss
+        if args.reg_loss_type == 'add#linear':
+            args.reg_loss_params = {'lambda': args.reg_loss_lambda}
+        elif args.reg_loss_type == 'mul#log':
+            args.reg_loss_params = {
+                'alpha': args.reg_loss_alpha,
+                'beta': args.reg_loss_beta}
+        else:
+            args.reg_loss_params = None
+
     # create run_config
     run_config = RunConfig(**args.__dict__)
 
