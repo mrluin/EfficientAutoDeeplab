@@ -359,6 +359,12 @@ class ArchSearchRunManager:
         epoch_time = AverageMeter()
         end_epoch = time.time()
         # TODO : use start_epochs
+
+        # single_path init
+        _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+        _, aspp_index = self.net.get_aspp_hardwts_index()
+        single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+
         for epoch in range(self.start_epoch, self.run_manager.run_config.epochs):
             self.logger.log('\n'+'-'*30+'Train Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='search')
             self.run_manager.scheduler.step(epoch)
@@ -389,11 +395,6 @@ class ArchSearchRunManager:
 
             end = time.time()
 
-            # single_path init
-            _, network_index = self.net.get_network_arch_hardwts_with_constraint()
-            _, aspp_index = self.net.get_aspp_hardwts_index()
-            single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-
             for i, (datas, targets) in enumerate(data_loader):
                 #print(self.net.single_path)
                 #print(i)
@@ -414,7 +415,7 @@ class ArchSearchRunManager:
                     logits = self.net.single_path_forward(datas, single_path) # super network gdas forward
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
-                    entropy_reg = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
+                    _, _, entropy_reg = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
                     #print('entropy_reg:', entropy_reg)
                     loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
                     #loss = self.run_manager.criterion(logits, targets)
@@ -448,7 +449,7 @@ class ArchSearchRunManager:
                         logits = self.net.single_path_forward(valid_datas, single_path)
 
                         ce_loss = self.run_manager.criterion(logits, valid_targets)
-                        entropy_reg = self.net.calculate_entropy(single_path)
+                        _, _, entropy_reg = self.net.calculate_entropy(single_path)
                         loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
 
                         # metrics and update
@@ -480,12 +481,21 @@ class ArchSearchRunManager:
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
 
+            _, network_index = self.net.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
+            _, aspp_index = self.net.get_aspp_hardwts_index()
+            single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+            cell_arch_entropy, network_arch_entropy, total_entropy = self.net.calculate_entropy(single_path)
+
             # update visdom
             if self.vis is not None:
                 self.vis.visdom_update(epoch, 'loss', [losses.average, valid_losses.average])
                 self.vis.visdom_update(epoch, 'accuracy', [accs.average, valid_accs.average])
                 self.vis.visdom_update(epoch, 'miou', [mious.average, valid_mious.average])
                 self.vis.visdom_update(epoch, 'f1score', [fscores.average, valid_fscores.average])
+
+                self.vis.visdom_update(epoch, 'cell_entropy', [cell_arch_entropy])
+                self.vis.visdom_update(epoch, 'network_entropy', [network_arch_entropy])
+                self.vis.visdom_update(epoch, 'entropy', [total_entropy])
 
             #torch.cuda.empty_cache()
             # update epoch_time

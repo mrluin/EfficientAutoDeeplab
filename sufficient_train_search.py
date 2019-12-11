@@ -128,10 +128,7 @@ def main(args):
     #print(args.optimizer_config)
     run_config = RunConfig( **args.__dict__ )
     arch_search_config = ArchSearchConfig( **args.__dict__ )
-    if args.open_vis:
-        vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
-                       args.elements, init_params=None)
-    else: vis = None
+
 
     # args.bn_momentum and args.bn_eps are not used
 
@@ -139,6 +136,27 @@ def main(args):
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
 
+    # calculate init entropy
+    _, network_index = super_network.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
+    _, aspp_index = super_network.get_aspp_hardwts_index()
+    single_path = super_network.sample_single_path(args.nb_layers, aspp_index, network_index)
+    cell_arch_entropy, network_arch_entropy, entropy = super_network.calculate_entropy(single_path)
+    vis_init_params = {
+        'cell_entropy': cell_arch_entropy,
+        'network_entropy': network_arch_entropy,
+        'entropy': entropy,
+    }
+    #print(args.elements)
+    vis_elements = args.elements
+    #print(vis_elements)
+    vis_elements.extend(['cell_entropy', 'network_entropy', 'entropy'])
+    args.elements = vis_elements
+    args.vis_init_params = vis_init_params
+    #print(args.elements)
+    if args.open_vis:
+        vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
+                       args.elements, init_params=args.vis_init_params)
+    else: vis = None
     '''
     from exp.autodeeplab.auto_deeplab import AutoDeeplab
     super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,

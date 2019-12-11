@@ -228,8 +228,9 @@ class GumbelAutoDeepLab(MyNetwork):
         # 2. calculate entropy for each cell.
         # 3. calculate entropy for node in the sampled path.
         # TODO: used in entropy regularized loss
-
-        entropy = 0
+        cell_arch_entropy = 0.
+        network_arch_entropy = 0.
+        entropy = 0.
         current_scale = 0
         for layer in range(self.nb_layers):
             next_scale = int(single_path[layer])
@@ -287,15 +288,15 @@ class GumbelAutoDeepLab(MyNetwork):
                     network_log_probs = torch.log(network_probs + eps)
                     network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) #/ torch.log(torch.tensor(2, dtype=torch.float))
             else: raise ValueError('invalid scale value {:}'.format(next_scale))
-            #print('layer, next_scale', layer, next_scale)
-            #print('cell_entropy:', cell_entropy)
-            #print('network_entropy:', network_entropy)
+
+            cell_arch_entropy += cell_entropy
+            network_arch_entropy += network_entropy
 
             entropy += cell_entropy
             entropy += network_entropy
             current_scale = next_scale
 
-        return entropy
+        return cell_arch_entropy, network_arch_entropy, entropy
 
     #def set_network_a
 
