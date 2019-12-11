@@ -2,6 +2,9 @@ import os
 import numpy as np
 from tqdm import tqdm
 import torch
+import torch.nn.functional as F
+
+from utils.common import get_cell_index
 
 
 def calculate_weights_labels(path, dataset, dataloader, nb_classes):
@@ -112,3 +115,90 @@ def calculate_network_level_search_space():
                     counter[i][j] = counter[i-1][j-1] + counter[i-1][j]
     print(counter)
     print(sum(counter[-1, :]))
+
+
+# TODO: need test
+def calculate_derived_model_entropy(search_checkpoint, search_arch_checkpoint, nb_layers=12, eps=1e-8):
+    # need checkpoint in search phase.
+    # return :: network_arch_entropy, cell_arch_entropy
+    checkpoint = torch.load(search_checkpoint)
+    arch_checkpoint = torch.load(search_arch_checkpoint)
+    actual_path = arch_checkpoint['actual_path']
+
+    network_arch_parameters = checkpoint['state_dict']['network_arch_parameters']
+    network_arch_entropy = 0.
+    cell_arch_entropy = 0.
+    current_scale = 0
+    for layer in range(nb_layers):
+        next_scale = int(actual_path[layer])
+        cell_index = get_cell_index(layer, current_scale, next_scale)
+
+        # cell entropy
+        cell_probs = F.softmax(checkpoint['state_dict']['cells.{:}.cell_arch_parameters'.format(cell_index)].cell_arch_parameters, -1)
+        cell_log_probs = torch.log(cell_probs + eps)
+        cell_entropy = - torch.sum(torch.mul(cell_probs,
+                                             cell_log_probs))  # / torch.log(torch.tensor(len(self.conv_candidates), dtype=torch.float))
+        # network node entropy
+        if next_scale == 0:
+            if layer == 0:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][1], -1) * (1 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(1, dtype=torch.float))
+            else:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][1:], -1) * (2 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(2, dtype=torch.float))
+        elif next_scale == 1:
+            if layer == 0:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(1, dtype=torch.float))
+            elif layer == 1:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(2, dtype=torch.float))
+            else:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale], -1)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(3, dtype=torch.float))
+        elif next_scale == 2:
+            if layer == 1:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(1, dtype=torch.float))
+            elif layer == 2:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = 1 - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(2, dtype=torch.float))
+            else:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale], -1)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(3, dtype=torch.float))
+        elif next_scale == 3:
+            if layer == 2:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][0], -1) * (1 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(1, dtype=torch.float))
+            else:
+                network_probs = F.softmax(network_arch_parameters[layer][next_scale][:2], -1) * (2 / 3)
+                network_log_probs = torch.log(network_probs + eps)
+                network_entropy = - torch.sum(
+                    torch.mul(network_probs, network_log_probs))  # / torch.log(torch.tensor(2, dtype=torch.float))
+        else:
+            raise ValueError('invalid scale value {:}'.format(next_scale))
+
+        network_arch_entropy += network_entropy
+        cell_arch_entropy += cell_entropy
+
+    return network_arch_entropy, cell_arch_entropy
+
+

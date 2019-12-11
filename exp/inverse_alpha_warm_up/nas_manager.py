@@ -222,6 +222,9 @@ class ArchSearchRunManager:
 
         self.logger.log('=> warmup begin', mode='warm')
 
+        # TODO: in inverse warm_up, inverse network_arch_param and all cell_arch_params firstly.
+        self.net.set_inverse_weight()
+
         epoch_time = AverageMeter()
         end_epoch = time.time()
         for epoch in range(self.warmup_epoch, warmup_epochs):
@@ -238,6 +241,10 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
+            valid_losses = AverageMeter()
+            valid_accs = AverageMeter()
+            valid_mious = AverageMeter()
+            valid_fscores = AverageMeter()
 
             epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, warmup_epochs)
             time_left = epoch_time.average * (warmup_epochs - epoch)
@@ -267,18 +274,16 @@ class ArchSearchRunManager:
                 # 2. sample single_path, and set single_path
                 # 3. get arch_sample_frequency
                 # 4. update single_path per '{:}'.format(sample_arch_frequency) frequency
+                '''
                 if (i+1) % self.arch_search_config.sample_arch_frequency == 0:
                     _, network_index = self.net.get_network_arch_hardwts_with_constraint()
                     _, aspp_index = self.net.get_aspp_hardwts_index()
                     single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-
+                    '''
                 logits = self.net.single_path_forward(datas, single_path)
-
-                # TODO: don't add entropy reg in warmup_phase
-
                 ce_loss = self.run_manager.criterion(logits, targets)
-                #entropy_reg = self.net.calculate_entropy(single_path)
-                loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                entropy_reg = self.net.calculate_entropy(single_path)
+                loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
@@ -294,14 +299,48 @@ class ArchSearchRunManager:
                 loss.backward()
                 self.run_manager.optimizer.step()
 
+                if (i+1) % self.arch_search_config.sample_arch_frequency == 0 or (i+1) == iter_per_epoch:
+                    valid_datas, valid_targets = self.run_manager.run_config.valid_next_batch
+                    if torch.cuda.is_available():
+                        valid_datas = valid_datas.to(self.run_manager.device, non_blocking=True)
+                        valid_targets = valid_targets.to(self.run_manager.device, non_blocking=True)
+                    else:
+                        raise ValueError('do not support cpu version')
+
+                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
+                    _, aspp_index = self.net.get_aspp_hardwts_index()
+                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index,
+                                                              network_index)
+                    logits = self.net.single_path_forward(valid_datas, single_path)
+
+                    ce_loss = self.run_manager.criterion(logits, valid_targets)
+                    entropy_reg = self.net.calculate_entropy(single_path)
+                    loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
+
+                    # metrics and update
+                    valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+                    valid_evaluator.add_batch(valid_targets, logits)
+                    acc = valid_evaluator.Pixel_Accuracy()
+                    miou = valid_evaluator.Mean_Intersection_over_Union()
+                    fscore = valid_evaluator.Fx_Score()
+                    valid_losses.update(loss.data.item(), datas.size(0))
+                    valid_accs.update(acc.item(), datas.size(0))
+                    valid_mious.update(miou.item(), datas.size(0))
+                    valid_fscores.update(fscore.item(), datas.size(0))
+
+                    self.net.zero_grad()
+                    loss.backward()  # release computational graph
+                    self.arch_optimizer.step()
+
                 batch_time.update(time.time()-end)
                 end = time.time()
                 if (i+1) % self.run_manager.run_config.train_print_freq == 0 or i + 1 == iter_per_epoch:
                     Wstr = '|*WARM-UP*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i+1, iter_per_epoch)
                     Tstr = '|Time     | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
-                    Bstr = '|Base     | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'\
-                        .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
-                    self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, 'warm')
+                    Bstr = '|Base     | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                    Astr = '|Arch     | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(
+                        loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
+                    self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, 'warm')
 
             #torch.cuda.empty_cache()
             epoch_time.update(time.time() - end_epoch)
@@ -323,6 +362,9 @@ class ArchSearchRunManager:
             self.warmup_epoch = self.warmup_epoch + 1
             #self.start_epoch = self.warmup_epoch
             # To save checkpoint in warmup phase at specific frequency.
+
+            # TODO: in inverse_alpha_warm_up, should check semantics of resume checkpoint.
+
             if (epoch+1) % self.run_manager.run_config.save_ckpt_freq == 0 or (epoch+1) == warmup_epochs:
                 state_dict = self.net.state_dict()
                 # rm architecture parameters because, in warm_up phase, arch_parameters are not updated.
@@ -333,6 +375,7 @@ class ArchSearchRunManager:
                     'state_dict': state_dict,
                     'weight_optimizer' : self.run_manager.optimizer.state_dict(),
                     'weight_scheduler': self.run_manager.optimizer.state_dict(),
+                    'arch_optimizer': self.arch_optimizer.state_dict(),
                     'warmup': self.warmup,
                     'warmup_epoch': epoch+1,
                 }
@@ -358,6 +401,8 @@ class ArchSearchRunManager:
         # pay attention here, total_epochs include warmup epochs
         epoch_time = AverageMeter()
         end_epoch = time.time()
+        # TODO: in train phase, set inverse weight back. ==> normal arch_weight
+        self.net.set_inverse_weight()
         # TODO : use start_epochs
         for epoch in range(self.start_epoch, self.run_manager.run_config.epochs):
             self.logger.log('\n'+'-'*30+'Train Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='search')

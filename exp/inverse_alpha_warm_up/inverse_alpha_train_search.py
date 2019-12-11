@@ -4,15 +4,20 @@
 # github : github.com/mrluin
 # ===============================
 
+# inverse_alpha_train_search, warmup phase, update operation and arch parameters, but use inverse value.
+# 1. reduce warm_up phase in train_search, use only train()
+# 2. modify nas_manager, get rid of warm_up, merge it into train phase.
+# 3. modify gumbel_super_network, the way to obtaining network_arch_hardwts, and cell_arch_hardwts, should use inverse weight.
+
 import os
 import torch
 import glob
 import random
 import json
 
-from exp.sufficient_update.run_manager import RunConfig
-from exp.sufficient_update.gumbel_super_network import GumbelAutoDeepLab
-from exp.sufficient_update.nas_manager import ArchSearchConfig, ArchSearchRunManager
+from exp.inverse_alpha_warm_up.run_manager import RunConfig
+from exp.inverse_alpha_warm_up.gumbel_super_network import GumbelAutoDeepLab
+from exp.inverse_alpha_warm_up.nas_manager import ArchSearchConfig, ArchSearchRunManager
 
 from configs.train_search_config import obtain_train_search_args
 from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir, configs_resume
@@ -192,6 +197,7 @@ def main(args):
                 super_network.load_state_dict(checkpoint['state_dict'])
                 arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
                 arch_search_run_manager.run_manager.scheduler.load_state_dict(checkpoint['weight_scheduler'])
+                arch_search_run_manager.arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
                 arch_search_run_manager.warmup = checkpoint['warmup']
                 arch_search_run_manager.warmup_epoch = checkpoint['warmup_epoch']
                 logger.log("=> loading checkpoint of the file '{:}' start with {:}-th epochs in warmup phase".format(warm_up_checkpoint, checkpoint['warmup_epoch']), mode='info')

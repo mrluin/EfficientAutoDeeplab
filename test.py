@@ -73,3 +73,7 @@ print(load_dict['path'])
 print(len([j for i in range(1) for j in range(i+2)]))
 print([j for i in range(1) for j in range(i+2)])
 '''
+
+
+checkpoint = torch.load('./seed-21054-search.pth')
+print(checkpoint['state_dict'])

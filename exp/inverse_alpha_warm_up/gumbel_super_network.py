@@ -4,6 +4,7 @@
 # github : github.com/mrluin
 # ===============================
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -30,7 +31,6 @@ class GumbelAutoDeepLab(MyNetwork):
         # TODO: get rid of
         #self.authors = authors
 
-
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
         self.steps = steps
@@ -52,25 +52,7 @@ class GumbelAutoDeepLab(MyNetwork):
 
         # TODO: modification in self.stem1 and self.stem2, to be consistent with the authors
         # TODO: in searching phase, use a two-layer stem; in re-train phase, use a three-layer stem.
-        '''
-        # three init stems
-        self.stem0 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
-            ('relu', nn.ReLU(inplace=True))
-        ]))
-        # remove 'relu' for self.stem1 # ('relu', nn.ReLU(inplace=True))
-        self.stem1 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
-        ]))
-        # change the order of the stem2
-        self.stem2 = nn.Sequential(OrderedDict([
-            ('relu', nn.ReLU(inplace=True)),
-            ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(64)),
-        ]))
-        '''
+
         # two-layer stem, output channels with 32 and 64
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False)),
@@ -297,7 +279,10 @@ class GumbelAutoDeepLab(MyNetwork):
 
         return entropy
 
-    #def set_network_a
+    def set_inverse_weight(self, eps=1e-8):
+        self.network_arch_parameters = 1 / (self.network_arch_parameters + eps)
+        for cell in self.cells:
+            cell.cell_arch_parameters = 1 / (cell.cell_arch_parameters + eps)
 
 
     def set_tau(self, tau):

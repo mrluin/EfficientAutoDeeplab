@@ -59,7 +59,7 @@ def obtain_train_search_args():
     parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--label_smoothing', type=float, default=0.)  # criterion param1
     parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None'])
-    parser.add_argument('--reg_loss_lambda', type=float, default=3e-1) # reg param # TODO: for entropy reg
+    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param # TODO: for entropy reg, unnormalized, use small lambda
     parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
     parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
     # print and save freq

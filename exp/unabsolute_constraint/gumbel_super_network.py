@@ -23,13 +23,12 @@ __all__ = ['GumbelAutoDeepLab']
 class GumbelAutoDeepLab(MyNetwork):
     def __init__(self,
                  filter_multiplier, block_multiplier, steps, nb_classes,
-                 nb_layers, bn_momentum, bn_eps, search_space, logger, affine=False):
+                 nb_layers, bn_momentum, bn_eps, search_space, logger, alpha_constraint=0.2 ,affine=False):
         super(GumbelAutoDeepLab, self).__init__()
 
         # TODO: authors argument is the flag used to control super network architecture. the semantics of the prev_prev_input
         # TODO: get rid of
         #self.authors = authors
-
 
         self.filter_multiplier = filter_multiplier
         self.block_multiplier = block_multiplier
@@ -48,29 +47,14 @@ class GumbelAutoDeepLab(MyNetwork):
             raise ValueError('search_space {:} is not supported'.format(search_space))
         self.logger = logger
 
+        # alpha constraint :: reduce importance of some path in fabric, in contrast to pruning the useless path.
+        self.alpha_constraint = alpha_constraint
+
         self.cells = nn.ModuleList()
 
         # TODO: modification in self.stem1 and self.stem2, to be consistent with the authors
         # TODO: in searching phase, use a two-layer stem; in re-train phase, use a three-layer stem.
-        '''
-        # three init stems
-        self.stem0 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
-            ('relu', nn.ReLU(inplace=True))
-        ]))
-        # remove 'relu' for self.stem1 # ('relu', nn.ReLU(inplace=True))
-        self.stem1 = nn.Sequential(OrderedDict([
-            ('conv', nn.Conv2d(32, 32, 3, stride=1, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
-        ]))
-        # change the order of the stem2
-        self.stem2 = nn.Sequential(OrderedDict([
-            ('relu', nn.ReLU(inplace=True)),
-            ('conv', nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(64)),
-        ]))
-        '''
+
         # two-layer stem, output channels with 32 and 64
         self.stem0 = nn.Sequential(OrderedDict([
             ('conv', nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False)),
@@ -995,6 +979,22 @@ class GumbelAutoDeepLab(MyNetwork):
         # means: scale 0 only have 'same operation' in the first nine layers
         #        scale 3 only have 'same operation' in the last three layers
         #
+        # TODO: with alpha_constraint instead of absolutely constraint.
+
+        # TODO: need test, whether network_arch_parameters update in this way
+        alpha_arch_parameters = self.network_arch_parameters.clone()
+        for layer in range(self.nb_layers):
+            if layer >= 1 and layer <= 8:
+                alpha_arch_parameters[layer][0][2] = alpha_arch_parameters[layer][0][2] * self.alpha_constraint
+            if layer >= 2 and layer <= 8:
+                alpha_arch_parameters[layer][1][2] = alpha_arch_parameters[layer][1][2] * self.alpha_constraint
+            if layer >= 3 and layer <= 8:
+                alpha_arch_parameters[layer][2][2] = alpha_arch_parameters[layer][2][2] * self.alpha_constraint
+            if layer > 8:
+                alpha_arch_parameters[layer][3][0] = alpha_arch_parameters[layer][3][9] * self.alpha_constraint
+                alpha_arch_parameters[layer][1][0] = alpha_arch_parameters[layer][1][0] * self.alpha_constraint
+                alpha_arch_parameters[layer][2][0] = alpha_arch_parameters[layer][2][0] * self.alpha_constraint
+
         while True:
             # 0-layer from true 0-layer
             gumbels = -torch.empty_like(self.network_arch_parameters).exponential_().log()
@@ -1003,60 +1003,60 @@ class GumbelAutoDeepLab(MyNetwork):
             for layer in range(self.nb_layers):
                 if layer == 0:
                     logits[layer][0][1] = \
-                        (self.network_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3)  + gumbels[layer][0][1]) / self.tau
+                        (alpha_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3)  + gumbels[layer][0][1]) / self.tau
                     probs[layer][0][1] = F.softmax(logits.clone()[layer][0][1], dim=-1) * (1 / 3)
                     logits[layer][1][0] = \
-                        (self.network_arch_parameters[layer][1][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][1][0]) / self.tau
+                        (alpha_arch_parameters[layer][1][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][1][0]) / self.tau
                     probs[layer][1][0] = F.softmax(logits.clone()[layer][1][0], dim=-1) * (1 / 3)
                 elif layer == 1:
                     logits[layer][0][1] = \
-                        (self.network_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
+                        (alpha_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
                     probs[layer][0][1] = F.softmax(logits.clone()[layer][0][1], dim=-1) * (1 / 3)
                     logits[layer][1][:2] = \
-                        (self.network_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
+                        (alpha_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
                     probs[layer][1][:2] = F.softmax(logits.clone()[layer][1][:2], dim=-1) * (2 / 3)
                     logits[layer][2][0] = \
-                        (self.network_arch_parameters[layer][2][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][2][0]) / self.tau
+                        (alpha_arch_parameters[layer][2][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][2][0]) / self.tau
                     probs[layer][2][0] = F.softmax(logits.clone()[layer][2][0], dim=-1) * (1 / 3)
                 elif layer == 2:
                     logits[layer][0][1] = \
-                        (self.network_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
+                        (alpha_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
                     probs[layer][0][1] = F.softmax(logits.clone()[layer][0][1], dim=-1) * (1 / 3)
                     logits[layer][1][:2] = \
-                        (self.network_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
+                        (alpha_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
                     probs[layer][1][:2] = F.softmax(logits.clone()[layer][1][:2], dim=-1) * (2 / 3)
                     logits[layer][2][:2] = \
-                        (self.network_arch_parameters[layer][2][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][:2]) / self.tau
+                        (alpha_arch_parameters[layer][2][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][:2]) / self.tau
                     probs[layer][2][:2] = F.softmax(logits.clone()[layer][2][:2], dim=-1) * (2 / 3)
                     logits[layer][3][0] = \
-                        (self.network_arch_parameters[layer][3][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][3][0]) / self.tau
+                        (alpha_arch_parameters[layer][3][0].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][3][0]) / self.tau
                     probs[layer][3][0] = F.softmax(logits.clone()[layer][3][0], dim=-1) * (1 /3)
                 else:
                     if layer <= 8:
                         logits[layer][0][1] = \
-                            (self.network_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
+                            (alpha_arch_parameters[layer][0][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][0][1]) / self.tau
                         probs[layer][0][1] = F.softmax(logits.clone()[layer][0][1], dim=-1) * (1 / 3)
                         logits[layer][1][:2] = \
-                            (self.network_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
+                            (alpha_arch_parameters[layer][1][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][:2]) / self.tau
                         probs[layer][1][:2] = F.softmax(logits.clone()[layer][1][:2], dim=-1) * (2 / 3)
                         logits[layer][2][:2] = \
-                            (self.network_arch_parameters[layer][2][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][:2]) / self.tau
+                            (alpha_arch_parameters[layer][2][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][:2]) / self.tau
                         probs[layer][2][:2] = F.softmax(logits.clone()[layer][2][:2], dim=-1) * (2 / 3)
                         logits[layer][3][:2] = \
-                            (self.network_arch_parameters[layer][3][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][3][:2]) / self.tau
+                            (alpha_arch_parameters[layer][3][:2].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][3][:2]) / self.tau
                         probs[layer][3][:2] = F.softmax(logits.clone()[layer][3][:2], dim=-1) * (2 / 3)
                     else:
                         logits[layer][0][1:] = \
-                            (self.network_arch_parameters[layer][0][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][0][1:]) / self.tau
+                            (alpha_arch_parameters[layer][0][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][0][1:]) / self.tau
                         probs[layer][0][1:] = F.softmax(logits.clone()[layer][0][1:], dim=-1) * (2 / 3)
                         logits[layer][1][1:] = \
-                            (self.network_arch_parameters[layer][1][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][1:]) / self.tau
+                            (alpha_arch_parameters[layer][1][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][1][1:]) / self.tau
                         probs[layer][1][1:] = F.softmax(logits.clone()[layer][1][1:], dim=-1) * (2 / 3)
                         logits[layer][2][1:] = \
-                            (self.network_arch_parameters[layer][2][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][1:]) / self.tau
+                            (alpha_arch_parameters[layer][2][1:].log_softmax(dim=-1) * (2 / 3) + gumbels[layer][2][1:]) / self.tau
                         probs[layer][2][1:] = F.softmax(logits.clone()[layer][2][1:], dim=-1) * (2 / 3)
                         logits[layer][3][1] = \
-                            (self.network_arch_parameters[layer][3][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][3][1]) / self.tau
+                            (alpha_arch_parameters[layer][3][1].log_softmax(dim=-1) * (1 / 3) + gumbels[layer][3][1]) / self.tau
                         probs[layer][3][1] = F.softmax(logits.clone()[layer][3][1], dim=-1) * (1 /3)
             index = probs.max(-1, keepdim=True)[1]
             one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)

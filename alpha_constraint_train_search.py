@@ -3,16 +3,15 @@
 # contact: ljbxd180612@gmail.com
 # github : github.com/mrluin
 # ===============================
-
 import os
 import torch
 import glob
 import random
 import json
-
 from exp.sufficient_update.run_manager import RunConfig
-from exp.sufficient_update.gumbel_super_network import GumbelAutoDeepLab
 from exp.sufficient_update.nas_manager import ArchSearchConfig, ArchSearchRunManager
+from exp.unabsolute_constraint.gumbel_super_network import GumbelAutoDeepLab
+
 
 from configs.train_search_config import obtain_train_search_args
 from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir, configs_resume
@@ -135,20 +134,12 @@ def main(args):
 
     # args.bn_momentum and args.bn_eps are not used
 
+    # TODO: alpha_constraint AutoDeeplab, encourage exploring the search space in network-level. alpha_constrain=0.2
     super_network = GumbelAutoDeepLab(
         args.filter_multiplier, args.block_multiplier, args.steps,
-        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
+        args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, 0.2, logger, affine=False)
 
-    '''
-    from exp.autodeeplab.auto_deeplab import AutoDeeplab
-    super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,
-                                args.nb_classes, args.nb_layers, args.search_space, logger, affine=False)
-    '''
-    '''
-    from exp.fixed_network_level.supernetwork import FixedNetwork
-    super_network = FixedNetwork(args.filter_multiplier, args.block_multiplier, args.steps, args.nb_classes,
-                                 args.nb_layers, args.search_space, logger, affine=False)
-    '''
+
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
 
