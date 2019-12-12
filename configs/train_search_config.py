@@ -59,7 +59,12 @@ def obtain_train_search_args():
     parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--label_smoothing', type=float, default=0.)  # criterion param1
     parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None'])
-    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param # TODO: for entropy reg, unnormalized, use small lambda
+
+    # un-normalized cell_entropy is 4 times larger than arch_entropy.
+    # so give cell_entropy a smaller lambda.
+    parser.add_argument('--reg_loss_lambda1', type=float, default=1e-1, help='lambda for cell_entropy') # reg param
+    parser.add_argument('--reg_loss_lambda2', type=float, default=4e-1, help='lambda for arch_entropy')
+
     parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
     parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
     # print and save freq
@@ -94,9 +99,8 @@ def obtain_train_search_args():
     parser.add_argument('--arch_optimizer_type', type=str, default='adam', choices=['sgd', 'adam'])
 
     # should be 3e-3 or 3e-4
-    parser.add_argument('--arch_lr', type=float, default=3e-4) # todo, pay attention, change into 3e-3 according to AutoDeeplab
-
-
+    #parser.add_argument('--arch_lr', type=float, default=3e-4, help='GDAS_arch_lr') # todo, pay attention, change into 3e-3 according to AutoDeeplab
+    parser.add_argument('--arch_lr', type=float, default=3e-3, help='Autodeeplab_arch_lr')
     parser.add_argument('--arch_adam_beta1', type=float, default=0.5) # arch_optim_param1
     parser.add_argument('--arch_adam_beta2', type=float, default=0.999) # arch_optim_param2
     parser.add_argument('--arch_adam_eps', type=float, default=1e-8) # arch_optim_param3

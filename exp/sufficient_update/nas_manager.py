@@ -10,7 +10,7 @@ import time
 import logging
 import json
 
-from run_manager import *
+from exp.sufficient_update.run_manager import *
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
 from utils.common import get_monitor_metric
@@ -415,9 +415,9 @@ class ArchSearchRunManager:
                     logits = self.net.single_path_forward(datas, single_path) # super network gdas forward
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
-                    _, _, entropy_reg = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
+                    #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
                     #print('entropy_reg:', entropy_reg)
-                    loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
+                    loss = self.run_manager.add_regularization_loss(ce_loss, None)
                     #loss = self.run_manager.criterion(logits, targets)
                     # metrics and update
                     evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -449,8 +449,8 @@ class ArchSearchRunManager:
                         logits = self.net.single_path_forward(valid_datas, single_path)
 
                         ce_loss = self.run_manager.criterion(logits, valid_targets)
-                        _, _, entropy_reg = self.net.calculate_entropy(single_path)
-                        loss = self.run_manager.add_regularization_loss(ce_loss, entropy_reg)
+                        cell_reg, network_reg, _ = self.net.calculate_entropy(single_path)
+                        loss = self.run_manager.add_regularization_loss(ce_loss, [cell_reg, network_reg])
 
                         # metrics and update
                         valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)

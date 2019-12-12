@@ -245,9 +245,7 @@ class GumbelAutoDeepLab(MyNetwork):
                 if layer == 0:
                     network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][1], -1) * (1 / 3)
                     network_log_probs = torch.log(network_probs + eps)
-                    #print('***************', network_log_probs)
                     network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) #/ torch.log(torch.tensor(1, dtype=torch.float))
-                    #print('+++++++++++++++', network_entropy)
                 else:
                     network_probs = F.softmax(self.network_arch_parameters[layer][next_scale][1:], -1) * (2 / 3)
                     network_log_probs = torch.log(network_probs + eps)
@@ -276,6 +274,7 @@ class GumbelAutoDeepLab(MyNetwork):
                     network_entropy = 1 - torch.sum(torch.mul(network_probs, network_log_probs)) #/ torch.log(torch.tensor(2, dtype=torch.float))
                 else:
                     network_probs = F.softmax(self.network_arch_parameters[layer][next_scale], -1)
+                    network_log_probs = torch.log(network_probs + eps)
                     network_log_probs = torch.log(network_probs + eps)
                     network_entropy =  - torch.sum(torch.mul(network_probs, network_log_probs)) #/ torch.log(torch.tensor(3, dtype=torch.float))
             elif next_scale == 3:

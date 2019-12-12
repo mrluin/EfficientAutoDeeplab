@@ -111,8 +111,11 @@ def main(args):
         else:
             args.arch_optimizer_params = None
         # related to entropy constraint loss
+        # TODO: pay attention, use separate lambda for cell_entropy and network_entropy.
         if args.reg_loss_type == 'add#linear':
-            args.reg_loss_params = {'lambda': args.reg_loss_lambda}
+            args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
+                                    'lambda2': args.reg_loss_lambda2,
+                                    }
         elif args.reg_loss_type == 'mul#log':
             args.reg_loss_params = {
                 'alpha': args.reg_loss_alpha,
