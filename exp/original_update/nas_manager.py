@@ -10,7 +10,7 @@ import time
 import logging
 import json
 
-from exp.sufficient_update.run_manager import *
+from exp.original_update.run_manager import *
 
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
@@ -246,16 +246,16 @@ class ArchSearchRunManager:
             self.logger.log(common_log, mode='warm')
             end = time.time()
 
-            # single_path init
-            _, network_index = self.net.get_network_arch_hardwts_with_constraint()
-            _, aspp_index = self.net.get_aspp_hardwts_index()
-            single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+            # single_path init TODO: does not perform sampling in origin update
+            #_, network_index = self.net.get_network_arch_hardwts_with_constraint()
+            #_, aspp_index = self.net.get_aspp_hardwts_index()
+            #single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
 
             for i, (datas, targets) in enumerate(data_loader):
                 #print(i)
                 #print(self.net.single_path)
-                #if i == 59: # used for debug
-                #    break
+                if i == 59: # used for debug
+                    break
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
                     targets = targets.to(self.run_manager.device, non_blocking=True)
@@ -268,15 +268,14 @@ class ArchSearchRunManager:
                 # 2. sample single_path, and set single_path
                 # 3. get arch_sample_frequency
                 # 4. update single_path per '{:}'.format(sample_arch_frequency) frequency
-                if (i+1) % self.arch_search_config.sample_arch_frequency == 0:
-                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()
-                    _, aspp_index = self.net.get_aspp_hardwts_index()
-                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-
+                #if (i+1) % self.arch_search_config.sample_arch_frequency == 0:
+                # TODO: update per iteration
+                _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                _, aspp_index = self.net.get_aspp_hardwts_index()
+                single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                 logits = self.net.single_path_forward(datas, single_path)
 
                 # TODO: don't add entropy reg in warmup_phase
-
                 ce_loss = self.run_manager.criterion(logits, targets)
                 #entropy_reg = self.net.calculate_entropy(single_path)
                 loss = self.run_manager.add_regularization_loss(ce_loss, None)
@@ -361,10 +360,10 @@ class ArchSearchRunManager:
         end_epoch = time.time()
         # TODO : use start_epochs
 
-        # single_path init
-        _, network_index = self.net.get_network_arch_hardwts_with_constraint()
-        _, aspp_index = self.net.get_aspp_hardwts_index()
-        single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+        # single_path init TODO: does not perform sampling init
+        #_, network_index = self.net.get_network_arch_hardwts_with_constraint()
+        #_, aspp_index = self.net.get_aspp_hardwts_index()
+        #single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
 
         for epoch in range(self.start_epoch, self.run_manager.run_config.epochs):
             self.logger.log('\n'+'-'*30+'Train Epoch: {}'.format(epoch+1)+'-'*30+'\n', mode='search')
@@ -399,7 +398,7 @@ class ArchSearchRunManager:
             for i, (datas, targets) in enumerate(data_loader):
                 #print(self.net.single_path)
                 #print(i)
-                #if i == 59: break
+                if i == 59: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)
@@ -413,6 +412,9 @@ class ArchSearchRunManager:
                         _, aspp_index = self.net.get_aspp_hardwts_index()
                         single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     '''
+                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                    _, aspp_index = self.net.get_aspp_hardwts_index()
+                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     logits = self.net.single_path_forward(datas, single_path) # super network gdas forward
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
@@ -436,38 +438,39 @@ class ArchSearchRunManager:
 
                     self.run_manager.optimizer.step()
 
-                    if (i+1) % self.arch_search_config.sample_arch_frequency == 0 or (i+1) == iter_per_epoch: # at the i-th iteration, update arch_parameters update_scheduler[i] times.
-                        valid_datas, valid_targets = self.run_manager.run_config.valid_next_batch
-                        if torch.cuda.is_available():
-                            valid_datas = valid_datas.to(self.run_manager.device, non_blocking=True)
-                            valid_targets = valid_targets.to(self.run_manager.device, non_blocking=True)
-                        else:
-                            raise ValueError('do not support cpu version')
+                    # at the i-th iteration, update arch_parameters update_scheduler[i] times.
+                    valid_datas, valid_targets = self.run_manager.run_config.valid_next_batch
+                    if torch.cuda.is_available():
+                        valid_datas = valid_datas.to(self.run_manager.device, non_blocking=True)
+                        valid_targets = valid_targets.to(self.run_manager.device, non_blocking=True)
+                    else:
+                        raise ValueError('do not support cpu version')
 
-                        _, network_index = self.net.get_network_arch_hardwts_with_constraint() # set self.hardwts again
-                        _, aspp_index = self.net.get_aspp_hardwts_index()
-                        single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-                        logits = self.net.single_path_forward(valid_datas, single_path)
+                    _, network_index = self.net.get_network_arch_hardwts_with_constraint() # set self.hardwts again
+                    _, aspp_index = self.net.get_aspp_hardwts_index()
+                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                    logits = self.net.single_path_forward(valid_datas, single_path)
 
-                        ce_loss = self.run_manager.criterion(logits, valid_targets)
-                        cell_reg, network_reg, _ = self.net.calculate_entropy(single_path)
-                        loss = self.run_manager.add_regularization_loss(ce_loss, [cell_reg, network_reg])
+                    ce_loss = self.run_manager.criterion(logits, valid_targets)
+                    #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path)
+                    # TODO: do not add entropy regularization in arch update
+                    loss = self.run_manager.add_regularization_loss(ce_loss, None)
 
-                        # metrics and update
-                        valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
-                        valid_evaluator.add_batch(valid_targets, logits)
-                        acc = valid_evaluator.Pixel_Accuracy()
-                        miou = valid_evaluator.Mean_Intersection_over_Union()
-                        fscore = valid_evaluator.Fx_Score()
-                        valid_losses.update(loss.data.item(), datas.size(0))
-                        valid_accs.update(acc.item(), datas.size(0))
-                        valid_mious.update(miou.item(), datas.size(0))
-                        valid_fscores.update(fscore.item(), datas.size(0))
+                    # metrics and update
+                    valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
+                    valid_evaluator.add_batch(valid_targets, logits)
+                    acc = valid_evaluator.Pixel_Accuracy()
+                    miou = valid_evaluator.Mean_Intersection_over_Union()
+                    fscore = valid_evaluator.Fx_Score()
+                    valid_losses.update(loss.data.item(), datas.size(0))
+                    valid_accs.update(acc.item(), datas.size(0))
+                    valid_mious.update(miou.item(), datas.size(0))
+                    valid_fscores.update(fscore.item(), datas.size(0))
 
-                        self.net.zero_grad()
-                        loss.backward() # release computational graph
-                        # update arch_parameters per '{:}'.format(arch_param_update_frequency)
-                        self.arch_optimizer.step()
+                    self.net.zero_grad()
+                    loss.backward() # release computational graph
+                    # update arch_parameters per '{:}'.format(arch_param_update_frequency)
+                    self.arch_optimizer.step()
 
                     # batch_time of one iter of train and valid.
                     batch_time.update(time.time() - end)

@@ -1,8 +1,8 @@
-'''
-@author: Jingbo Lin
-@contact: ljbxd180612@gmail.com
-@github: github.com/mrluin
-'''
+# ===============================
+# author : Jingbo Lin
+# contact: ljbxd180612@gmail.com
+# github : github.com/mrluin
+# ===============================
 
 import os
 import torch
@@ -10,10 +10,10 @@ import glob
 import random
 import json
 
-#from models.gumbel_super_network import GumbelAutoDeepLab
-from exp.sufficient_update.gumbel_super_network import GumbelAutoDeepLab
-from run_manager import RunConfig
-from nas_manager import ArchSearchConfig, ArchSearchRunManager
+from exp.original_update.run_manager import RunConfig
+from exp.original_update.gumbel_super_network import GumbelAutoDeepLab
+from exp.original_update.nas_manager import ArchSearchConfig, ArchSearchRunManager
+
 from configs.train_search_config import obtain_train_search_args
 from utils.common import set_manual_seed, print_experiment_environment, time_for_file, create_exp_dir, configs_resume
 from utils.common import save_configs
@@ -111,8 +111,11 @@ def main(args):
         else:
             args.arch_optimizer_params = None
         # related to entropy constraint loss
+        # TODO: pay attention, use separate lambda for cell_entropy and network_entropy.
         if args.reg_loss_type == 'add#linear':
-            args.reg_loss_params = {'lambda1': args.reg_loss_lambda1, 'lambda2': args.reg_loss_lambda2}
+            args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
+                                    'lambda2': args.reg_loss_lambda2,
+                                    }
         elif args.reg_loss_type == 'mul#log':
             args.reg_loss_params = {
                 'alpha': args.reg_loss_alpha,
@@ -128,6 +131,8 @@ def main(args):
     #print(args.optimizer_config)
     run_config = RunConfig( **args.__dict__ )
     arch_search_config = ArchSearchConfig( **args.__dict__ )
+
+
     # args.bn_momentum and args.bn_eps are not used
 
     super_network = GumbelAutoDeepLab(
@@ -144,18 +149,27 @@ def main(args):
         'network_entropy': network_arch_entropy,
         'entropy': entropy,
     }
-    # print(args.elements)
+    #print(args.elements)
     vis_elements = args.elements
-    # print(vis_elements)
+    #print(vis_elements)
     vis_elements.extend(['cell_entropy', 'network_entropy', 'entropy'])
     args.elements = vis_elements
     args.vis_init_params = vis_init_params
-    # print(args.elements)
+    #print(args.elements)
     if args.open_vis:
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=args.vis_init_params)
-    else:
-        vis = None
+    else: vis = None
+    '''
+    from exp.autodeeplab.auto_deeplab import AutoDeeplab
+    super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,
+                                args.nb_classes, args.nb_layers, args.search_space, logger, affine=False)
+    '''
+    '''
+    from exp.fixed_network_level.supernetwork import FixedNetwork
+    super_network = FixedNetwork(args.filter_multiplier, args.block_multiplier, args.steps, args.nb_classes,
+                                 args.nb_layers, args.search_space, logger, affine=False)
+    '''
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
 

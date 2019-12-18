@@ -5,7 +5,7 @@ import time
 import logging
 import json
 
-from run_manager import *
+from exp.sufficient_update.run_manager import *
 from utils.common import set_manual_seed
 from utils.common import AverageMeter
 from utils.common import get_monitor_metric
@@ -237,8 +237,8 @@ class ArchSearchRunManager:
 
             for i, (datas, targets) in enumerate(data_loader):
 
-                #if i == 5: # used for debug
-                #    break
+                #if i == 29: break
+
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
                     targets = targets.to(self.run_manager.device, non_blocking=True)
@@ -246,10 +246,17 @@ class ArchSearchRunManager:
                     raise ValueError('do not support cpu version')
                 data_time.update(time.time()-end)
 
-                #logits = self.net.single_path_forward(datas)
-                logits = self.net(datas)
 
+                # get single_path in each iteration
+                _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                _, aspp_index = self.net.get_aspp_hardwts_index()
+                single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                logits = self.net.single_path_forward(datas, single_path)
+
+                # update without entropy reg in warm_up phase
                 loss = self.run_manager.criterion(logits, targets)
+
+
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
@@ -368,8 +375,13 @@ class ArchSearchRunManager:
                     else:
                         raise ValueError('do not support cpu version')
                     data_time.update(time.time() - end)
-                    #logits = self.net.single_path_forward(datas) # super network gdas forward
-                    logits = self.net(datas) # super network gdas forward
+
+                    # get single_path in each iteration
+                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                    _, aspp_index = self.net.get_aspp_hardwts_index()
+                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                    logits = self.net.single_path_forward(datas, single_path)
+
                     # loss
                     loss = self.run_manager.criterion(logits, targets)
                     # metrics and update
@@ -386,7 +398,6 @@ class ArchSearchRunManager:
                     self.net.zero_grad()
                     loss.backward()
 
-
                     self.run_manager.optimizer.step()
 
                     #end_valid = time.time()
@@ -397,10 +408,13 @@ class ArchSearchRunManager:
                     else:
                         raise ValueError('do not support cpu version')
 
-                    #valid_data_time.update(time.time()-end_valid)
-                    #logits = self.net.single_path_forward(valid_datas)
-                    logits = self.net(valid_datas)
+                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                    _, aspp_index = self.net.get_aspp_hardwts_index()
+                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                    logits = self.net.single_path_forward(valid_datas, single_path)
+
                     loss = self.run_manager.criterion(logits, valid_targets)
+
                     # metrics and update
                     valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                     valid_evaluator.add_batch(valid_targets, logits)
@@ -429,8 +443,10 @@ class ArchSearchRunManager:
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
 
-                        #print('network_arch_parameters:\n'
-                        #      , self.net.network_arch_parameters)
+            _, network_index = self.net.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
+            _, aspp_index = self.net.get_aspp_hardwts_index()
+            single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+            cell_arch_entropy, network_arch_entropy, total_entropy = self.net.calculate_entropy(single_path)
 
             # update visdom
             if self.vis is not None:
@@ -438,6 +454,10 @@ class ArchSearchRunManager:
                 self.vis.visdom_update(epoch, 'accuracy', [accs.average, valid_accs.average])
                 self.vis.visdom_update(epoch, 'miou', [mious.average, valid_mious.average])
                 self.vis.visdom_update(epoch, 'f1score', [fscores.average, valid_fscores.average])
+
+                self.vis.visdom_update(epoch, 'cell_entropy', [cell_arch_entropy])
+                self.vis.visdom_update(epoch, 'network_entropy', [network_arch_entropy])
+                self.vis.visdom_update(epoch, 'entropy', [total_entropy])
 
             #torch.cuda.empty_cache()
             # update epoch_time

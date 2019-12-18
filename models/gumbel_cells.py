@@ -38,7 +38,7 @@ my_search_space = [
     '3x3_SepFacConv2', '5x5_SepFacConv2',
     '3x3_SepFacConv4', '5x5_SepFacConv4',
     #'3x3_SepFacConv8', '5x5_SepFacConv8',
-    #'Zero',
+    'Zero',
     #'Identity',
 ]
 
@@ -177,10 +177,10 @@ class GumbelCell(MyModule):
             3: 32,
         }
         self.index2channel = {
-            0: 32,
-            1: 64,
-            2: 128,
-            3: 256,
+            0: int(filter_multiplier * block_multiplier * self.index2scale[0] / 4),
+            1: int(filter_multiplier * block_multiplier * self.index2scale[1] / 4),
+            2: int(filter_multiplier * block_multiplier * self.index2scale[2] / 4),
+            3: int(filter_multiplier * block_multiplier * self.index2scale[3] / 4),
         }
         self.steps = steps # nodes within each cell
         # todo add new attribute
@@ -293,6 +293,7 @@ class GumbelCell(MyModule):
             raise ValueError('search space {:} is not supported'.format(self.search_space))
 
         self.finalconv1x1 = ConvLayer(self.steps * self.outc, self.outc, 1, 1, False)
+
         self.edge_keys = sorted(list(self.ops.keys())) # 'sorted by {:}<-{:}'
         self.edge2index = {key:i for i, key in enumerate(self.edge_keys)} # {:}<-{:} : index
         self.nb_edges = len(self.ops)
@@ -420,7 +421,7 @@ class GumbelCell(MyModule):
 
         concat_feature = torch.cat(states[-self.steps:], dim=1)
         concat_feature = self.finalconv1x1(concat_feature)
-
+        #print(concat_feature.shape)
         return concat_feature
 
 
