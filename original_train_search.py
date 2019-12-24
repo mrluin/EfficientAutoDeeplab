@@ -3,6 +3,9 @@
 # contact: ljbxd180612@gmail.com
 # github : github.com/mrluin
 # ===============================
+# ===============================
+# exp for original Gumbel AutoDeeplab, without pruning, sufficient update, entropy regularized loss function.
+# ===============================
 
 import os
 import torch
@@ -43,7 +46,7 @@ def main(args):
         EXP_time = time_for_file()
         args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_EXP_time))
         os.makedirs(args.path, exist_ok=True)
-        create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+        create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
         save_configs(args.__dict__, args.path, 'search')
         logger = prepare_logger(args)
         logger.log("=> loading configs from the file '{:}' start.".format(args.resume_file), mode='info')
@@ -56,7 +59,7 @@ def main(args):
         EXP_time = time_for_file()
         args.path = os.path.join(args.path, args.exp_name, EXP_time)
         os.makedirs(args.path, exist_ok=True)
-        create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+        create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
 
         # weight optimizer config, related to network_weight_optimizer, scheduler, and criterion
         if args.weight_optimizer_type == 'SGD':

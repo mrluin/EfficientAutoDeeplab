@@ -254,8 +254,8 @@ class ArchSearchRunManager:
             for i, (datas, targets) in enumerate(data_loader):
                 #print(i)
                 #print(self.net.single_path)
-                if i == 59: # used for debug
-                    break
+                #if i == 59: # used for debug
+                #   break
                 if torch.cuda.is_available():
                     datas = datas.to(self.run_manager.device, non_blocking=True)
                     targets = targets.to(self.run_manager.device, non_blocking=True)
@@ -398,7 +398,7 @@ class ArchSearchRunManager:
             for i, (datas, targets) in enumerate(data_loader):
                 #print(self.net.single_path)
                 #print(i)
-                if i == 59: break
+                #if i == 59: break
                 if not fix_net_weights:
                     if torch.cuda.is_available():
                         datas = datas.to(self.run_manager.device, non_blocking=True)

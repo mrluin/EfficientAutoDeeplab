@@ -39,7 +39,7 @@ def main(args):
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)  # from the last retrain phase or search phase.
         os.makedirs(args.path, exist_ok=True)
-        create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+        create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
         save_configs(args.__dict__, args.path, 'retrain')
         logger = prepare_logger(args)
         logger.log('=> loading configs {:} from the last retrain phase.'.format(config_file_path), mode='info')
@@ -65,7 +65,7 @@ def main(args):
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)  # from the last retrain phase or search phase.
         os.makedirs(args.path, exist_ok=True)
-        create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+        create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
         save_configs(args.__dict__, args.path, 'retrain')
         logger = prepare_logger(args)
         logger.log('=> starting retrain from the search phase config {:}.'.format(config_file_path), mode='info')

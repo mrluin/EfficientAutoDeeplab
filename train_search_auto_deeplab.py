@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     # save experiment scripts
 
-    create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+    create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
 
     # build run configs
     args.lr_scheduler_param = None

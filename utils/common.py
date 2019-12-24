@@ -367,17 +367,21 @@ def network_layer_to_space(net_arch, nb_layers):
     return network_space
 '''
 def create_exp_dir(path, scripts_to_save=None):
+    # path :: experiment dir
+    # scripts_to_save :: path to save_files, root path.
     if not os.path.exists(path):
         os.mkdir(path)
     print('Experiment dir: {}'.format(path))
 
-    if scripts_to_save  is not None:
+    if scripts_to_save is not None:
+        dst_file = os.path.join(path, 'scripts')
+        shutil.copytree(scripts_to_save, dst_file)
+        '''
         os.mkdir(os.path.join(path, 'scripts'))
         for script in scripts_to_save:
             dst_file = os.path.join(path, 'scripts', os.path.basename(script))
             shutil.copyfile(script, dst_file)
-
-
+            '''
 def detect_none_inputs(s0, s1):
     log = ''
     if s0 is None:

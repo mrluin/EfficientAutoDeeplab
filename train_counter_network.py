@@ -33,7 +33,7 @@ def main(args):
     EXP_time = time_for_file()
     args.path = os.path.join(args.path, args.exp_name, EXP_time)
     os.makedirs(args.path, exist_ok=True)
-    create_exp_dir(args.path, scripts_to_save=glob.glob('./*/*.py'))
+    create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
 
     # weight optimizer config, related to network_weight_optimizer, scheduler, and criterion
     if args.weight_optimizer_type == 'SGD':

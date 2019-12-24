@@ -308,6 +308,11 @@ class ArchSearchRunManager:
             epoch_time.update(time.time() - end_epoch)
             end_epoch = time.time()
 
+            #epoch_str = '{:03d}/{:03d}'.format(epoch+1, self.run_manager.run_config.warmup_epochs)
+            log = '[{:}] warm :: loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n'.format(
+                epoch_str, losses.average, accs.average, mious.average, fscores.average)
+            self.logger.log(log, mode='warm')
+
             '''
             # TODO: wheter perform validation after each epoch in warmup phase ?
             valid_loss, valid_acc, valid_miou, valid_fscore = self.validate()
