@@ -65,9 +65,19 @@ class visdomer(object):
                             xtype='linear', xlabel='epoch', xtickmin=0, xtick=True,
                             xtickstep=10, ytype='linear', ytickmin=0, ylabel='{}'.format(element),
                             ytick=True))
+        elif element in ['warmup_loss', 'warmup_miou']:
+            window = self.viz.line(
+                X = torch.ones(1),
+                Y = torch.ones(1),
+                opts = dict(title='{}'.format(element),
+                            showlegend=True, legend=['{}'.format(element)],
+                            xtype='linear', xlabel='epoch', xtickmin=0, xtick=True,
+                            xtickstep=10, ytype='linear', ytickmin=0, ylabel='{}'.format(element),
+                            ytick=True))
             return window
         else: raise NotImplementedError('do not support metric {}'.format(element))
         return window
+
     def visdom_update(self, epoch, update_element, update_value):
         if update_element in ['loss', 'accuracy', 'miou', 'f1score']:
             #print(update_value)
@@ -98,4 +108,13 @@ class visdomer(object):
                 Y=torch.tensor([current_entropy]),
                 win=window,
                 update='append' if epoch != 1 else 'insert'
+            )
+        elif update_element in ['warmup_loss', 'warmup_miou']:
+            current_value = update_value[0]
+            window = self.get_window(update_element)
+            self.viz.line(
+                X = torch.ones(1) * epoch,
+                Y = torch.tensor([current_value]),
+                win = window,
+                update = 'append' if epoch != 1 else 'insert'
             )

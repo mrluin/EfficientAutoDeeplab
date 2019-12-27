@@ -239,7 +239,6 @@ class ArchSearchRunManager:
             mious = AverageMeter()
             fscores = AverageMeter()
 
-
             epoch_str = 'epoch[{:03d}/{:03d}]'.format(epoch + 1, warmup_epochs)
             time_left = epoch_time.average * (warmup_epochs - epoch)
             common_log = '[Warmup the {:}] Left={:} LR={:}'.format(epoch_str, str(timedelta(seconds=time_left)) if epoch!=0 else None, warmup_lr)
@@ -279,6 +278,7 @@ class ArchSearchRunManager:
 
                 ce_loss = self.run_manager.criterion(logits, targets)
                 #entropy_reg = self.net.calculate_entropy(single_path)
+                #cell_entropy, network_entropy, _ = self.net.calculate_entropy(single_path)
                 loss = self.run_manager.add_regularization_loss(ce_loss, None)
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -311,6 +311,9 @@ class ArchSearchRunManager:
             #epoch_str = '{:03d}/{:03d}'.format(epoch+1, self.run_manager.run_config.warmup_epochs)
             log = '[{:}] warm :: loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n'.format(
                 epoch_str, losses.average, accs.average, mious.average, fscores.average)
+            self.vis.visdom_update(epoch, 'warmup_loss', [losses.average])
+            self.vis.visdom_update(epoch, 'warmup_miou', [mious.average])
+
             self.logger.log(log, mode='warm')
 
             '''

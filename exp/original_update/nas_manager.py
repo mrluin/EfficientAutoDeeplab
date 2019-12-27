@@ -270,7 +270,7 @@ class ArchSearchRunManager:
                 # 4. update single_path per '{:}'.format(sample_arch_frequency) frequency
                 #if (i+1) % self.arch_search_config.sample_arch_frequency == 0:
                 # TODO: update per iteration
-                _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                _, network_index = self.net.get_network_arch_hardwts()
                 _, aspp_index = self.net.get_aspp_hardwts_index()
                 single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                 logits = self.net.single_path_forward(datas, single_path)
@@ -302,11 +302,16 @@ class ArchSearchRunManager:
                     Bstr = '|Base     | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'\
                         .format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                     self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr, 'warm')
-
             #torch.cuda.empty_cache()
             epoch_time.update(time.time() - end_epoch)
             end_epoch = time.time()
 
+            log = '[{:}] warm :: loss={:.2f} accuracy={:.2f} miou={:.2f} f1score={:.2f}\n'.format(
+                epoch_str, losses.average, accs.average, mious.average, fscores.average)
+            self.vis.visdom_update(epoch, 'warmup_loss', [losses.average])
+            self.vis.visdom_update(epoch, 'warmup_miou', [mious.average])
+
+            self.logger.log(log, mode='warm')
             '''
             # TODO: wheter perform validation after each epoch in warmup phase ?
             valid_loss, valid_acc, valid_miou, valid_fscore = self.validate()
@@ -412,7 +417,7 @@ class ArchSearchRunManager:
                         _, aspp_index = self.net.get_aspp_hardwts_index()
                         single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     '''
-                    _, network_index = self.net.get_network_arch_hardwts_with_constraint()
+                    _, network_index = self.net.get_network_arch_hardwts()
                     _, aspp_index = self.net.get_aspp_hardwts_index()
                     single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     logits = self.net.single_path_forward(datas, single_path) # super network gdas forward
@@ -446,7 +451,7 @@ class ArchSearchRunManager:
                     else:
                         raise ValueError('do not support cpu version')
 
-                    _, network_index = self.net.get_network_arch_hardwts_with_constraint() # set self.hardwts again
+                    _, network_index = self.net.get_network_arch_hardwts() # set self.hardwts again
                     _, aspp_index = self.net.get_aspp_hardwts_index()
                     single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     logits = self.net.single_path_forward(valid_datas, single_path)
@@ -485,7 +490,7 @@ class ArchSearchRunManager:
                         Astr = '|Arch    | [Loss {loss.val:.3f} ({loss.avg:.3f}) Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=valid_losses, acc=valid_accs, miou=valid_mious, fscore=valid_fscores)
                         self.logger.log(Wstr+'\n'+Tstr+'\n'+Bstr+'\n'+Astr, mode='search')
 
-            _, network_index = self.net.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
+            _, network_index = self.net.get_network_arch_hardwts()  # set self.hardwts again
             _, aspp_index = self.net.get_aspp_hardwts_index()
             single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
             cell_arch_entropy, network_arch_entropy, total_entropy = self.net.calculate_entropy(single_path)
