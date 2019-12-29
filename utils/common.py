@@ -467,9 +467,10 @@ def convert_secs2time(epoch_time, return_str=False):
         return need_hour, need_mins, need_secs
 
 def configs_resume(args, configs_dict, phase):
+    # TODO, should have modification on configs_resume, according to phase == 'search'
     if phase == 'search':
         for key in configs_dict.keys():
-            if 'path' not in key and 'gpu_ids' not in key and 'resume' not in key and 'resume_file' not in key:
+            if 'path' not in key and 'gpu_ids' not in key and 'resume' not in key and 'resume_file' not in key and 'arch_lr' not in key and 'exp_name' not in key:
                 args.__dict__[key] = configs_dict[key]
         return args
     elif phase == 'retrain':

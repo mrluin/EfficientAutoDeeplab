@@ -40,8 +40,9 @@ def main(args):
         configs_resume(args, config_dict, 'search')
         # new EXP file initialize
         resume_EXP_time = config_dict['path'].split('/')[-1]
+        resume_exp_name = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_EXP_time))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_exp_name+'-'+resume_EXP_time))
         os.makedirs(args.path, exist_ok=True)
         create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
         save_configs(args.__dict__, args.path, 'search')
@@ -197,7 +198,8 @@ def main(args):
             logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
             warm_up_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-warm.pth'.format(args.random_seed))
             search_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-search.pth'.format(args.random_seed))
-            if os.path.exists(search_checkpoint): # resume checkpoint in search phase
+            #if os.path.exists(search_checkpoint): # resume checkpoint in search phase
+            if args.resume_from_warmup == False:
                 checkpoint = torch.load(search_checkpoint)
                 super_network.load_state_dict(checkpoint['state_dict'])
                 arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])
@@ -228,8 +230,9 @@ def main(args):
     if arch_search_run_manager.warmup:
         arch_search_run_manager.warm_up(warmup_epochs=args.warmup_epochs)
     # train search phase
+    else:
+        logger.log('=> warmup phrase has done epochs:{:}, start to train ... ...'.format(arch_search_run_manager.warmup_epoch), mode='info')
     arch_search_run_manager.train()
-
     logger.close()
 
 if __name__ == '__main__':
