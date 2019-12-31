@@ -346,7 +346,7 @@ class RunManager:
         return best_monitor
 
 
-    def add_regularization_loss(self, ce_loss, reg_value=None):
+    def add_regularization_loss(self, epoch, ce_loss, reg_value=None):
         # TODO: add entropy_reg
         # 1. lambda for both cell_entropy and network_entropy
         # 2. lambda1 for cell, and lambda2 for network separately.
@@ -357,6 +357,13 @@ class RunManager:
         if self.run_config.reg_loss_type == 'add#linear':
             reg_lambda1, reg_lambda2 = self.run_config.reg_loss_params['lambda1'], self.run_config.reg_loss_params['lambda2']
             reg_loss = reg_lambda1 * reg_value[0] + reg_lambda2 * reg_value[1]
+            return ce_loss + reg_loss
+        elif self.run_config.reg_loss_type == 'add#linear#linearschedule':
+            # TODO: add lambda scheduler, reg_lambda linearly increase to defined value from zero in epochs.
+            reg_lambda1, reg_lambda2 = self.run_config.reg_loss_params['lambda1'], self.run_config.reg_loss_params['lambda2']
+            lambda1 = reg_lambda1 * epoch / (self.run_config.epochs - 1)
+            lambda2 = reg_lambda2 * epoch / (self.run_config.epochs - 1)
+            reg_loss = lambda1 * reg_value[0] + lambda2 * reg_value[1]
             return ce_loss + reg_loss
         elif self.run_config.reg_loss_type == 'mul#log':
             raise NotImplementedError

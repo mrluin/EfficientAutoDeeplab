@@ -201,12 +201,10 @@ class GumbelAutoDeepLab(MyNetwork):
 
         self.tau = 10
 
-        self.network_arch_hardwts = None
-        self.network_arch_index   = None
-        self.single_path          = None
-
-        self.aspp_arch_hardwts    = None
-        self.aspp_arch_index      = None
+        self.hardwts = None
+        self.index = None
+        self.single_path = None
+        self.aspp_index = None
 
         # TODO: nb_edges and edge2index are used in shared cell architecture.
         #self.nb_edges =
@@ -377,6 +375,7 @@ class GumbelAutoDeepLab(MyNetwork):
         return flops + flop_stem0 + flop_stem1 + flop_stem2 + flop_aspp, output
 
     def viterbi_decode(self):
+        # TODO: pay attention, decode without constraint
         # network_space           [12, 4, 3], 0-layer is output of stem2 0: ↗, 1: →, 2: ↘
         # network_arch_parameters [12, 4, 3], 0-layer is true 0-layer,   0: ↘, 1: →, 2: ↗, w.r.t. each node in fabric
         with torch.no_grad():
@@ -385,24 +384,24 @@ class GumbelAutoDeepLab(MyNetwork):
             #aspp_space = self.aspp_arch_parameters
             for layer in range(self.nb_layers):
                 if layer == 0:
-                    network_space[layer][0][1] = F.softmax(self.network_arch_parameters[layer][0][1], -1)
-                    network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][1][0], -1)
+                    network_space[layer][0][1] = F.softmax(self.network_arch_parameters[layer][0][1], -1) * (1 / 3)
+                    network_space[layer][1][0] = F.softmax(self.network_arch_parameters[layer][1][0], -1) * (1 / 3)
                 elif layer == 1:
-                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1)
-                    network_space[layer][1][:2] = F.softmax(self.network_arch_parameters[layer][1][:2], -1)
-                    network_space[layer][2][0] = F.softmax(self.network_arch_parameters[layer][2][0], -1)
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2 / 3)
+                    network_space[layer][1][:2] = F.softmax(self.network_arch_parameters[layer][1][:2], -1) * (2 / 3)
+                    network_space[layer][2][0] = F.softmax(self.network_arch_parameters[layer][2][0], -1) * (1 / 3)
                 elif layer == 2:
-                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1)
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2 / 3)
                     network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
-                    network_space[layer][2][:2] = F.softmax(self.network_arch_parameters[layer][2][:2], -1)
-                    network_space[layer][3][0] = F.softmax(self.network_arch_parameters[layer][3][0], -1)
+                    network_space[layer][2][:2] = F.softmax(self.network_arch_parameters[layer][2][:2], -1) * (2 / 3)
+                    network_space[layer][3][0] = F.softmax(self.network_arch_parameters[layer][3][0], -1) * (1 / 3)
                 else:
-                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1)
+                    network_space[layer][0][1:] = F.softmax(self.network_arch_parameters[layer][0][1:], -1) * (2 / 3)
                     network_space[layer][1] = F.softmax(self.network_arch_parameters[layer][1], -1)
                     network_space[layer][2] = F.softmax(self.network_arch_parameters[layer][2], -1)
-                    network_space[layer][3][:2] = F.softmax(self.network_arch_parameters[layer][3][:2], -1)
+                    network_space[layer][3][:2] = F.softmax(self.network_arch_parameters[layer][3][:2], -1) * ( 2 / 3)
 
-        print('viterbi_phase:\n', network_space)
+        self.logger.log('network_arch_params:\n'+str(network_space), mode='network_space', display=False)
         prob_space = np.zeros(network_space.shape[:2]) # [12, 4]
         path_space = np.zeros(network_space.shape[:2]).astype('int8') # [12, 4]
 
@@ -494,7 +493,7 @@ class GumbelAutoDeepLab(MyNetwork):
         return actual_path, cell_genotypes
 
 
-    def single_path_forward(self, x, single_path):
+    def single_path_forward(self, x):
         # forward for network_level and cell_level
         # 1. generate hardwts for super network √
         # 2. _forward for each node √
@@ -509,7 +508,9 @@ class GumbelAutoDeepLab(MyNetwork):
         #log, flag = detect_invalid_index(index, self.nb_layers)
         #assert flag, log
         # to get aspp hardwts
-
+        self.hardwts, self.index = self.get_network_arch_hardwts()
+        _, self.aspp_index = self.get_aspp_hardwts_index()
+        self.single_path = self.sample_single_path(self.nb_layers, self.aspp_index, self.index)
 
         # TODO:
         # 1. according to aspp_hardwts, obtain single path of the super network. from backward √
@@ -526,7 +527,7 @@ class GumbelAutoDeepLab(MyNetwork):
         #single_path = self.sample_single_path(self.nb_layers, aspp_index, index) # record next_scale from output of stem2
 
         # used to debug, record the sampled single_path
-        self.logger.log(str(single_path), mode='single_path', display=False)
+        self.logger.log(str(self.single_path), mode='single_path', display=False)
 
         # forward according to single_path
         size = x.size()[-2:]
@@ -540,7 +541,7 @@ class GumbelAutoDeepLab(MyNetwork):
         inter_features.append(x)
         current_scale = 0
         for layer in range(self.nb_layers): # single_path loop layer-index w.r.t. output of stem2
-            next_scale = int(single_path[layer])
+            next_scale = int(self.single_path[layer])
             # prev_prev_feature, prev_feature = get_prev_c(inter_features, next_scale)
             # TODO: prev_prev_feature is always inter_features[-2] and prev_feature is always inter_features[-1]
             prev_prev_feature, prev_feature = inter_features[-2], inter_features[-1]
@@ -550,14 +551,14 @@ class GumbelAutoDeepLab(MyNetwork):
             #_weight = hardwts[layer][next_scale]
             # need prev_prev_feature, prev_features, weight, index, active
             #print('_single_path_foward layer{} scale{} cell_index{}'.format(layer+1, next_scale, cell_index))
-            state = self._single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, self.network_arch_index, self.network_arch_hardwts,
-                                                prev_prev_feature, prev_feature)
+            state = self._single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, self.index, self.hardwts,
+                                                     prev_prev_feature, prev_feature)
             current_scale = next_scale
             #print(next_scale, state.shape)
             inter_features.pop(0)
             inter_features.append(state)
 
-        last_scale = int(single_path[-1])
+        last_scale = int(self.single_path[-1])
         if last_scale == 0:
             aspp_result = self.aspp4(inter_features[-1])
         elif last_scale == 1:
@@ -606,9 +607,9 @@ class GumbelAutoDeepLab(MyNetwork):
                 continue
             else: break
 
-        self.aspp_arch_hardwts = nn.Parameter(aspp_hardwts)
+        #self.aspp_arch_hardwts = nn.Parameter(aspp_hardwts)
 
-        self.aspp_arch_index   = aspp_index
+        #self.aspp_arch_index   = aspp_index
         return aspp_hardwts, aspp_index
 
     def _gdas_weighted_sum(self, layer, scale, cell_index, weight, index, prev_prev_c, prev_c):
@@ -797,7 +798,7 @@ class GumbelAutoDeepLab(MyNetwork):
         # single_path records next_scale, starts from layer-0 (output of stem2)
 
         # len()=12, record the next scale from 0-layer(output of stem2)
-        self.single_path = single_path
+        #self.single_path = single_path
         return single_path
 
     def get_network_arch_hardwts(self):
@@ -908,7 +909,7 @@ class GumbelAutoDeepLab(MyNetwork):
                 continue
             else: break
 
-        self.network_arch_hardwts = nn.Parameter(hardwts)
-        self.network_arch_index   = index
+        #self.network_arch_hardwts = nn.Parameter(hardwts)
+        #self.network_arch_index   = index
 
         return hardwts, index

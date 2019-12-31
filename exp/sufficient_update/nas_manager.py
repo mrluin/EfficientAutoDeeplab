@@ -408,7 +408,9 @@ class ArchSearchRunManager:
             self.logger.log(common_log, 'search')
 
             end = time.time()
+
             set_single_path = True
+
             for i, (datas, targets) in enumerate(data_loader):
                 #print(self.net.single_path)
                 #print(i)
@@ -468,8 +470,8 @@ class ArchSearchRunManager:
                         #logits = self.net.single_path_forward(valid_datas, single_path)
                         logits = self.net.single_path_forward(valid_datas, set_single_path=set_single_path)
                         ce_loss = self.run_manager.criterion(logits, valid_targets)
-                        #cell_reg, network_reg, _ = self.net.calculate_entropy(self.net.single_path)
-                        loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                        cell_reg, network_reg, _ = self.net.calculate_entropy(self.net.single_path)
+                        loss = self.run_manager.add_regularization_loss(ce_loss, [cell_reg, network_reg])
 
                         # metrics and update
                         valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -493,6 +495,7 @@ class ArchSearchRunManager:
 
                     # in other case, calculate metrics normally
                     # train_print_freq == sample_arch_freq
+                    # TODO pay attention, no constraint on train_print_freq and sample_arch_frequency.
                     if (i+1) % self.run_manager.run_config.train_print_freq == 0 or (i + 1) == iter_per_epoch:
                         Wstr = '|*Search*|' + time_string() + '[{:}][iter{:03d}/{:03d}]'.format(epoch_str, i + 1, iter_per_epoch)
                         Tstr = '|Time    | {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)

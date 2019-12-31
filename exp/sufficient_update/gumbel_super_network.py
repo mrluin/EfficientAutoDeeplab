@@ -203,6 +203,7 @@ class GumbelAutoDeepLab(MyNetwork):
 
         #self.network_arch_hardwts = None
         #self.network_arch_index   = None
+        self.hardwts              = None
         self.single_path          = None
         self.aspp_index           = None
         self.index                = None
@@ -608,12 +609,13 @@ class GumbelAutoDeepLab(MyNetwork):
         #log, flag = detect_invalid_index(index, self.nb_layers)
         #assert flag, log
         # to get aspp hardwts
-        hardwts, index = self.get_network_arch_hardwts_with_constraint()
+        self.hardwts, index = self.get_network_arch_hardwts_with_constraint()
         _, aspp_index = self.get_aspp_hardwts_index()
         if set_single_path:
             self.single_path = self.sample_single_path(self.nb_layers, aspp_index, index)
             self.aspp_index = aspp_index
             self.index = index
+
         # TODO:
         # 1. according to aspp_hardwts, obtain single path of the super network. from backward √
         # 2. forward for the single path,
@@ -653,7 +655,7 @@ class GumbelAutoDeepLab(MyNetwork):
             #_weight = hardwts[layer][next_scale]
             # need prev_prev_feature, prev_features, weight, index, active
             #print('_single_path_foward layer{} scale{} cell_index{}'.format(layer+1, next_scale, cell_index))
-            state = self._single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, self.index, hardwts,
+            state = self._single_path_gdas_weightsum(layer, current_scale, next_scale, cell_index, self.index, self.hardwts,
                                                     prev_prev_feature, prev_feature)
             current_scale = next_scale
             #print(next_scale, state.shape)

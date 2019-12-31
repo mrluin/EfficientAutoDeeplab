@@ -270,10 +270,10 @@ class ArchSearchRunManager:
                 # 4. update single_path per '{:}'.format(sample_arch_frequency) frequency
                 #if (i+1) % self.arch_search_config.sample_arch_frequency == 0:
                 # TODO: update per iteration
-                _, network_index = self.net.get_network_arch_hardwts()
-                _, aspp_index = self.net.get_aspp_hardwts_index()
-                single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-                logits = self.net.single_path_forward(datas, single_path)
+                #_, network_index = self.net.get_network_arch_hardwts()
+                #_, aspp_index = self.net.get_aspp_hardwts_index()
+                #single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                logits = self.net.single_path_forward(datas)
 
                 # TODO: don't add entropy reg in warmup_phase
                 ce_loss = self.run_manager.criterion(logits, targets)
@@ -417,10 +417,10 @@ class ArchSearchRunManager:
                         _, aspp_index = self.net.get_aspp_hardwts_index()
                         single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
                     '''
-                    _, network_index = self.net.get_network_arch_hardwts()
-                    _, aspp_index = self.net.get_aspp_hardwts_index()
-                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-                    logits = self.net.single_path_forward(datas, single_path) # super network gdas forward
+                    #_, network_index = self.net.get_network_arch_hardwts()
+                    #_, aspp_index = self.net.get_aspp_hardwts_index()
+                    #single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                    logits = self.net.single_path_forward(datas) # super network gdas forward
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
@@ -451,10 +451,10 @@ class ArchSearchRunManager:
                     else:
                         raise ValueError('do not support cpu version')
 
-                    _, network_index = self.net.get_network_arch_hardwts() # set self.hardwts again
-                    _, aspp_index = self.net.get_aspp_hardwts_index()
-                    single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
-                    logits = self.net.single_path_forward(valid_datas, single_path)
+                    #_, network_index = self.net.get_network_arch_hardwts() # set self.hardwts again
+                    #_, aspp_index = self.net.get_aspp_hardwts_index()
+                    #single_path = self.net.sample_single_path(self.run_manager.run_config.nb_layers, aspp_index, network_index)
+                    logits = self.net.single_path_forward(valid_datas)
 
                     ce_loss = self.run_manager.criterion(logits, valid_targets)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path)
