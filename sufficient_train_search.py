@@ -117,6 +117,10 @@ def main(args):
         args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
                                 'lambda2': args.reg_loss_lambda2,
                                 }
+    elif args.reg_loss_type == 'add#linear#linearschedule':
+        args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
+                                'lambda2': args.reg_loss_lambda2,}
+
     elif args.reg_loss_type == 'mul#log':
         args.reg_loss_params = {
             'alpha': args.reg_loss_alpha,
