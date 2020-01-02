@@ -284,7 +284,7 @@ class ArchSearchRunManager:
                 ce_loss = self.run_manager.criterion(logits, targets)
                 #entropy_reg = self.net.calculate_entropy(single_path)
                 #cell_entropy, network_entropy, _ = self.net.calculate_entropy(single_path)
-                loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
@@ -433,9 +433,11 @@ class ArchSearchRunManager:
                     set_single_path = False
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
+                    print('here:==========================')
+                    print(ce_loss)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
                     #print('entropy_reg:', entropy_reg)
-                    loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                    loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
                     #loss = self.run_manager.criterion(logits, targets)
                     # metrics and update
                     evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -471,7 +473,7 @@ class ArchSearchRunManager:
                         logits = self.net.single_path_forward(valid_datas, set_single_path=set_single_path)
                         ce_loss = self.run_manager.criterion(logits, valid_targets)
                         cell_reg, network_reg, _ = self.net.calculate_entropy(self.net.single_path)
-                        loss = self.run_manager.add_regularization_loss(ce_loss, [cell_reg, network_reg])
+                        loss = self.run_manager.add_regularization_loss(epoch, ce_loss, [cell_reg, network_reg])
 
                         # metrics and update
                         valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)

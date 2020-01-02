@@ -1,4 +1,5 @@
 import argparse
+import os
 
 def obtain_train_search_args():
     DEFAULT_PORT =  8097
@@ -10,8 +11,8 @@ def obtain_train_search_args():
     parser = argparse.ArgumentParser(description='AutoDeeplab train search configs')
 
     ''' all need to change '''
-    parser.add_argument('--path', type=str, default='/home/jingweipeng/ljb/Jingbo.TTB/Workspace', help='the path to workspace')
-    parser.add_argument('--save_path', type=str, default='/home/jingweipeng/ljb/WHUBuilding', help='root dir of dataset')
+    parser.add_argument('--path', type=str, default=os.path.expandvars('$HOME')+'/ljb/Jingbo.TTB/Workspace', help='the path to workspace')
+    parser.add_argument('--save_path', type=str, default=os.path.expandvars('$HOME')+'/ljb/WHUBuilding', help='root dir of dataset')
     parser.add_argument('--search_resume', default=False, action='store_true', help='checkpoint file if needed')
     parser.add_argument('--resume_file', type=str, default=None)
     parser.add_argument('--resume_from_warmup', default=False, action='store_true', help='control resume from warmup')
