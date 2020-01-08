@@ -4,6 +4,7 @@ import math
 import torch
 import logging
 import torch.nn as nn
+import numpy as np
 import json
 import torch.optim as optim
 from datetime import timedelta
@@ -17,7 +18,7 @@ from utils.metrics import Evaluator
 from utils.calculators import calculate_weights_labels
 from optimizers import CosineAnnealingLR, MultiStepLR, LinearLR, CrossEntropyLabelSmooth, ExponentialLR
 from models.gumbel_cells import autodeeplab, proxyless, counter, my_search_space
-
+from PIL import Image
 '''
 # RunConfig: 1. all the configurations from args
 #            2. build optimizer, learning_rate, and dataset
@@ -39,9 +40,8 @@ class RunConfig:
                  search_space,
                  #conv_candidates,
                  reg_loss_type, reg_loss_params,
-                 actual_path = None, cell_genotypes= None,
+                 actual_path = None, cell_genotypes = None,
                  search_resume = False, retrain_resume = False, evaluation = False,
-
                  **kwargs):
 
         # actual_path and cell_genotypes are used in retrain-phase
@@ -277,6 +277,7 @@ class RunManager:
     def __init__(self, path, super_network, logger, run_config: RunConfig, vis=None, out_log=True):
 
         self.path = path # root path to workspace
+
         self.model_path = logger.model_dir
         self.log_path = logger.log_dir
         self.prediction_path = logger.predictions_dir
@@ -419,6 +420,19 @@ class RunManager:
 
         print('=' * 30 + '=>\tLoaded Checkpoint {}'.format(checkpoint_file))
 
+    def _save_pred(self, predictions, filenames):
+
+        for index, map in enumerate(predictions):
+            map = torch.argmax(map, dim=0)
+            map = map * 255
+            map = np.asarray(map.cpu(), dtype=np.uint8)
+            map = Image.fromarray(map)
+            # filename /0.1.png [0] 0 [1] 1
+            filename = filenames[index].split('/')[-1].split('.')
+            save_filename = filename[0] + '.' + filename[1]
+            save_path = os.path.join(self.prediction_path, 'patches', save_filename + '.png')
+            map.save(save_path)
+
     def validate(self, epoch=None, is_test=False, use_train_mode=False):
         # 1. super network viterbi_decodde, get actual_path
         # 2. cells genotype decode, which are on the actual_path in the super network
@@ -448,40 +462,66 @@ class RunManager:
         end0 = time.time()
 
         with torch.no_grad():
-            for i, (datas, targets) in enumerate(data_loader):
-                if torch.cuda.is_available():
-                    datas = datas.to(self.device, non_blocking=True)
-                    targets = targets.to(self.device, non_blocking=True)
-                else:
-                    raise ValueError('do not support cpu version')
-                data_time.update(time.time()-end0)
-                # validation of the derived model. normal forward pass.
-                logits = self.model(datas)
-                loss = self.criterion(logits, targets)
-                # metrics calculate and update
-                evaluator = Evaluator(self.run_config.nb_classes)
-                evaluator.add_batch(targets, logits)
-                miou = evaluator.Mean_Intersection_over_Union()
-                fscore = evaluator.Fx_Score()
-                acc = evaluator.Pixel_Accuracy()
-                losses.update(loss.data.item(), datas.size(0))
-                mious.update(miou.item(), datas.size(0))
-                fscores.update(fscore.item(), datas.size(0))
-                accs.update(acc.item(), datas.size(0))
-                # duration
-                batch_time.update(time.time() - end0)
-                end0 = time.time()
-
             if is_test:
+                for i, (data, targets, filenames) in enumerate(data_loader):
+                    if torch.cuda.is_available():
+                        datas = datas.to(self.device, non_blocking=True)
+                        targets = targets.to(self.device, non_blocking=True)
+                    else:
+                        raise ValueError('do not support cpu version')
+                    data_time.update(time.time()-end0)
+                    logits = self.model(datas)
+                    self._save_pred(logits, filenames)
+                    loss = self.criterion(logits, targets)
+                    # metrics calculate and update
+                    evaluator = Evaluator(self.run_config.nb_classes)
+                    evaluator.add_batch(targets, logits)
+                    miou = evaluator.Mean_Intersection_over_Union()
+                    fscore = evaluator.Fx_Score()
+                    acc = evaluator.Pixel_Accuracy()
+                    losses.update(loss.data.item(), datas.size(0))
+                    mious.update(miou.item(), datas.size(0))
+                    fscores.update(fscore.item(), datas.size(0))
+                    accs.update(acc.item(), datas.size(0))
+                    # duration
+                    batch_time.update(time.time() - end0)
+                    end0 = time.time()
                 Wstr = '|*TEST*|' + time_string()
                 Tstr = '|Time  | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
                 Bstr = '|Base  | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                 self.logger.log(Wstr + '\n' + Tstr + '\n' + Bstr, 'test')
             else:
+                for i, (datas, targets) in enumerate(data_loader):
+                    if torch.cuda.is_available():
+                        datas = datas.to(self.device, non_blocking=True)
+                        targets = targets.to(self.device, non_blocking=True)
+                    else:
+                        raise ValueError('do not support cpu version')
+                    data_time.update(time.time()-end0)
+                    # validation of the derived model. normal forward pass.
+                    logits = self.model(datas)
+
+                    # TODO generate predictions
+                    loss = self.criterion(logits, targets)
+
+                    # metrics calculate and update
+                    evaluator = Evaluator(self.run_config.nb_classes)
+                    evaluator.add_batch(targets, logits)
+                    miou = evaluator.Mean_Intersection_over_Union()
+                    fscore = evaluator.Fx_Score()
+                    acc = evaluator.Pixel_Accuracy()
+
+                    losses.update(loss.data.item(), datas.size(0))
+                    mious.update(miou.item(), datas.size(0))
+                    fscores.update(fscore.item(), datas.size(0))
+                    accs.update(acc.item(), datas.size(0))
+
+                    # duration
+                    batch_time.update(time.time() - end0)
+                    end0 = time.time()
                 Wstr = '|*VALID*|' + time_string() + epoch_str
                 Tstr = '|Time   | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
-                Bstr = '|Base   | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(
-                    loss=losses, acc=accs, miou=mious, fscore=fscores)
+                Bstr = '|Base   | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                 self.logger.log(Wstr + '\n' + Tstr + '\n' + Bstr, 'valid')
 
         return losses.avg, accs.avg, mious.avg, fscores.avg

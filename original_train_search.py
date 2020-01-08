@@ -43,13 +43,14 @@ def main(args):
         configs_resume(args, config_dict, 'search')
         # new EXP file initialize
         resume_EXP_time = config_dict['path'].split('/')[-1]
+        resume_exp_name = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_EXP_time))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_exp_name+'-'+resume_EXP_time))
         os.makedirs(args.path, exist_ok=True)
         create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
-        save_configs(args.__dict__, args.path, 'search')
-        logger = prepare_logger(args)
-        logger.log("=> loading configs from the file '{:}' start.".format(args.resume_file), mode='info')
+        #save_configs(args.__dict__, args.path, 'search')
+        #logger = prepare_logger(args)
+        #logger.log("=> loading configs from the file '{:}' start.".format(args.resume_file), mode='info')
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)
     else:
@@ -61,75 +62,80 @@ def main(args):
         os.makedirs(args.path, exist_ok=True)
         create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
 
-        # weight optimizer config, related to network_weight_optimizer, scheduler, and criterion
-        if args.weight_optimizer_type == 'SGD':
-            weight_optimizer_params = {
-                'momentum': args.momentum,
-                'nesterov': args.nesterov,
-                'weight_decay': args.weight_decay,
-            }
-        elif args.weight_optimizer_type == 'RMSprop':
-            weight_optimizer_params = {
-                'momentum': args.momentum,
-                'weight_decay': args.weight_decay,
-            }
-        else: weight_optimizer_params = None
-        if args.scheduler == 'cosine':
-            scheduler_params = {
-                'T_max': args.T_max,
-                'eta_min': args.eta_min
-            }
-        elif args.scheduler == 'multistep':
-            scheduler_params = {
-                'milestones': args.milestones,
-                'gammas': args.gammas
-            }
-        elif args.scheduler == 'exponential':
-            scheduler_params = {'gamma': args.gamma}
-        elif args.scheduler == 'linear':
-            scheduler_params = {'min_lr': args.min_lr}
-        else: scheduler_params = None
-        if args.criterion == 'SmoothSoftmax':
-            criterion_params = {'label_smooth': args.label_smoothing}
-        else: criterion_params = None
-        # weight_optimizer_config, used in run_manager to get weight_optimizer, scheduler, and criterion.
-        args.optimizer_config = {
-            'optimizer_type'   : args.weight_optimizer_type,
-            'optimizer_params' : weight_optimizer_params,
-            'scheduler'        : args.scheduler,
-            'scheduler_params' : scheduler_params,
-            'criterion'        : args.criterion,
-            'criterion_params' : criterion_params,
-            'init_lr'          : args.init_lr,
-            'warmup_epoch'     : args.warmup_epochs,
-            'epochs'           : args.epochs,
-            'class_num'        : args.nb_classes,
+    # weight optimizer config, related to network_weight_optimizer, scheduler, and criterion
+    if args.weight_optimizer_type == 'SGD':
+        weight_optimizer_params = {
+            'momentum': args.momentum,
+            'nesterov': args.nesterov,
+            'weight_decay': args.weight_decay,
         }
-        # arch_optimizer_config
-        if args.arch_optimizer_type == 'adam':
-            args.arch_optimizer_params = {
-                'betas': (args.arch_adam_beta1, args.arch_adam_beta2),
-                'eps': args.arch_adam_eps
-            }
-        else:
-            args.arch_optimizer_params = None
-        # related to entropy constraint loss
-        # TODO: pay attention, use separate lambda for cell_entropy and network_entropy.
-        if args.reg_loss_type == 'add#linear':
-            args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
-                                    'lambda2': args.reg_loss_lambda2,
-                                    }
-        elif args.reg_loss_type == 'mul#log':
-            args.reg_loss_params = {
-                'alpha': args.reg_loss_alpha,
-                'beta': args.reg_loss_beta
-            }
-        else:
-            args.reg_loss_params = None
-        # perform config save, for run_configs and arch_search_configs
-        save_configs(args.__dict__, args.path, 'search')
-        logger = prepare_logger(args)
-        logger.log('=> train-search phase initialization done', mode='info')
+    elif args.weight_optimizer_type == 'RMSprop':
+        weight_optimizer_params = {
+            'momentum': args.momentum,
+            'weight_decay': args.weight_decay,
+        }
+    else: weight_optimizer_params = None
+    if args.scheduler == 'cosine':
+        scheduler_params = {
+            'T_max': args.T_max,
+            'eta_min': args.eta_min
+        }
+    elif args.scheduler == 'multistep':
+        scheduler_params = {
+            'milestones': args.milestones,
+            'gammas': args.gammas
+        }
+    elif args.scheduler == 'exponential':
+        scheduler_params = {'gamma': args.gamma}
+    elif args.scheduler == 'linear':
+        scheduler_params = {'min_lr': args.min_lr}
+    else: scheduler_params = None
+    if args.criterion == 'SmoothSoftmax':
+        criterion_params = {'label_smooth': args.label_smoothing}
+    else: criterion_params = None
+    # weight_optimizer_config, used in run_manager to get weight_optimizer, scheduler, and criterion.
+    args.optimizer_config = {
+        'optimizer_type'   : args.weight_optimizer_type,
+        'optimizer_params' : weight_optimizer_params,
+        'scheduler'        : args.scheduler,
+        'scheduler_params' : scheduler_params,
+        'criterion'        : args.criterion,
+        'criterion_params' : criterion_params,
+        'init_lr'          : args.init_lr,
+        'warmup_epoch'     : args.warmup_epochs,
+        'epochs'           : args.epochs,
+        'class_num'        : args.nb_classes,
+    }
+    # arch_optimizer_config
+    if args.arch_optimizer_type == 'adam':
+        args.arch_optimizer_params = {
+            'betas': (args.arch_adam_beta1, args.arch_adam_beta2),
+            'eps': args.arch_adam_eps
+        }
+    else:
+        args.arch_optimizer_params = None
+    # related to entropy constraint loss
+    # TODO: pay attention, use separate lambda for cell_entropy and network_entropy.
+    if args.reg_loss_type == 'add#linear':
+        args.reg_loss_params = {'lambda1': args.reg_loss_lambda1,
+                                'lambda2': args.reg_loss_lambda2,
+                                }
+    elif args.reg_loss_type == 'add#linear#linearschedule':
+        args.reg_loss_params = {
+            'lambda1': args.reg_loss_lambda1,
+            'lambda2': args.reg_loss_lambda2,
+        }
+    elif args.reg_loss_type == 'mul#log':
+        args.reg_loss_params = {
+            'alpha': args.reg_loss_alpha,
+            'beta': args.reg_loss_beta
+        }
+    else:
+        args.reg_loss_params = None
+    # perform config save, for run_configs and arch_search_configs
+    save_configs(args.__dict__, args.path, 'search')
+    logger = prepare_logger(args)
+    logger.log("=> loading configs from the file '{:}' start.".format(args.resume_file) if args.search_resume else '=> train-search phase initialization done', mode='info')
 
     #print(args.optimizer_config)
     run_config = RunConfig( **args.__dict__ )
@@ -147,6 +153,9 @@ def main(args):
     _, aspp_index = super_network.get_aspp_hardwts_index()
     single_path = super_network.sample_single_path(args.nb_layers, aspp_index, network_index)
     cell_arch_entropy, network_arch_entropy, entropy = super_network.calculate_entropy(single_path)
+
+    logger.log('=> entropy : {:}'.format(entropy), mode='info')
+
     vis_init_params = {
         'cell_entropy': cell_arch_entropy,
         'network_entropy': network_arch_entropy,
@@ -196,7 +205,7 @@ def main(args):
             logger.log("=> loading checkpoint of the file '{:}' start".format(args.resume_file), mode='info')
             warm_up_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-warm.pth'.format(args.random_seed))
             search_checkpoint = os.path.join(args.resume_file, 'checkpoints', 'seed-{:}-search.pth'.format(args.random_seed))
-            if os.path.exists(search_checkpoint): # resume checkpoint in search phase
+            if args.resume_from_warmup == False: # resume checkpoint in search phase
                 checkpoint = torch.load(search_checkpoint)
                 super_network.load_state_dict(checkpoint['state_dict'])
                 arch_search_run_manager.run_manager.optimizer.load_state_dict(checkpoint['weight_optimizer'])

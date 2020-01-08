@@ -29,6 +29,7 @@ def obtain_train_search_args():
     parser.add_argument('--warmup_lr', type=float, default=0.05, help='warmup phrase init lr, from origin')
     parser.add_argument('--arch_lr', type=float, default=3e-3, help='Autodeeplab_arch_lr')
 
+    parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None', 'add#linear#linearschedule'])
     parser.add_argument('--reg_loss_lambda1', type=float, default=0.1, help='lambda for cell_entropy') # reg param
     parser.add_argument('--reg_loss_lambda2', type=float, default=0.4, help='lambda for arch_entropy')
 
@@ -80,7 +81,7 @@ def obtain_train_search_args():
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
     parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--label_smoothing', type=float, default=0.)  # criterion param1
-    parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None', 'add#linear#linearschedule'])
+
 
     # un-normalized cell_entropy is 4 times larger than arch_entropy.
     # so give cell_entropy a smaller lambda.

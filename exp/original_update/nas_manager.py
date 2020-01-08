@@ -278,7 +278,7 @@ class ArchSearchRunManager:
                 # TODO: don't add entropy reg in warmup_phase
                 ce_loss = self.run_manager.criterion(logits, targets)
                 #entropy_reg = self.net.calculate_entropy(single_path)
-                loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
                 # measure metrics and update
                 evaluator = Evaluator(self.run_manager.run_config.nb_classes)
                 evaluator.add_batch(targets, logits)
@@ -425,7 +425,7 @@ class ArchSearchRunManager:
                     ce_loss = self.run_manager.criterion(logits, targets)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
                     #print('entropy_reg:', entropy_reg)
-                    loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                    loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
                     #loss = self.run_manager.criterion(logits, targets)
                     # metrics and update
                     evaluator = Evaluator(self.run_manager.run_config.nb_classes)
@@ -459,7 +459,7 @@ class ArchSearchRunManager:
                     ce_loss = self.run_manager.criterion(logits, valid_targets)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path)
                     # TODO: do not add entropy regularization in arch update
-                    loss = self.run_manager.add_regularization_loss(ce_loss, None)
+                    loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
 
                     # metrics and update
                     valid_evaluator = Evaluator(self.run_manager.run_config.nb_classes)

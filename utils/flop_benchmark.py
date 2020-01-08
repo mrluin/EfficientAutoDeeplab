@@ -15,7 +15,7 @@ def count_parameters_in_MB(model):
 
 def get_model_infos(model, shape):
     model = add_flops_counting_methods(model)
-    assert next(model.parameters()).device != 'cpu', 'model should on gpu'
+    #assert next(model.parameters()).device != 'cpu', 'model should on gpu'
     device = next(model.parameters()).device
     model.eval()
 
@@ -23,8 +23,12 @@ def get_model_infos(model, shape):
     if torch.cuda.is_available():
         cache_inputs = cache_inputs.to(device)
 
+
+    # TODO change forward -> single_path_forward
+
     with torch.no_grad():
         model(cache_inputs)
+
     FLOPs = compute_average_flops_cost(model) / 1e6
     params = count_parameters_in_MB(model)
 
@@ -62,7 +66,10 @@ def compute_average_flops_cost(model):
 def pool_flops_counter_hook(pool_module, inputs, output):
     batch_size = inputs[0].size(0)
     kernel_size = pool_module.kernel_size
-    out_C, output_height, output_width = output.shape[1:]
+    if isinstance(output, tuple):
+        out_C, output_height, output_width = output[0].shape[1:]
+    else:
+        out_C, output_height, output_width = output.shape[1:]
     assert out_C == inputs[0].size(1), '{:} vs. {:}'.format(out_C, inputs[0].size())
 
     overall_flops = batch_size * out_C * output_height * output_width * kernel_size * kernel_size

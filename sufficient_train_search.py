@@ -144,11 +144,14 @@ def main(args):
         args.filter_multiplier, args.block_multiplier, args.steps,
         args.nb_classes, args.nb_layers, args.bn_momentum, args.bn_eps, args.search_space, logger, affine=False)
 
+
     # calculate init entropy
     _, network_index = super_network.get_network_arch_hardwts_with_constraint()  # set self.hardwts again
     _, aspp_index = super_network.get_aspp_hardwts_index()
     single_path = super_network.sample_single_path(args.nb_layers, aspp_index, network_index)
     cell_arch_entropy, network_arch_entropy, entropy = super_network.calculate_entropy(single_path)
+
+    logger.log('=> entropy : {:}'.format(entropy), mode='info')
 
     vis_init_params = {
         'cell_entropy': cell_arch_entropy,
@@ -166,26 +169,10 @@ def main(args):
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=args.vis_init_params)
     else: vis = None
-    '''
-    from exp.autodeeplab.auto_deeplab import AutoDeeplab
-    super_network = AutoDeeplab(args.filter_multiplier, args.block_multiplier, args.steps,
-                                args.nb_classes, args.nb_layers, args.search_space, logger, affine=False)
-    '''
-    '''
-    from exp.fixed_network_level.supernetwork import FixedNetwork
-    super_network = FixedNetwork(args.filter_multiplier, args.block_multiplier, args.steps, args.nb_classes,
-                                 args.nb_layers, args.search_space, logger, affine=False)
-    '''
+
     arch_search_run_manager = ArchSearchRunManager(args.path, super_network, run_config, arch_search_config, logger, vis)
     display_all_families_information(args, 'search', arch_search_run_manager, logger)
 
-    '''
-    # get_model_infos, perform inference
-    # TODO: modify the way of forward into gdas_forward
-    flop, param = get_model_infos(super_network, [1, 3, 512, 512])
-    print('||||||| FLOPS & PARAMS |||||||')
-    print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
-    '''
     # 1. resume warmup phase
     # 2. resume search phase
     # 3. add last_info log × not last_info, every time, the saved_file name is not consistent, should given resume_file

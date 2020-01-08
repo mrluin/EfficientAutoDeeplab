@@ -4,12 +4,7 @@ import torch.nn.functional as F
 import sys
 import json
 import torchvision.datasets as datasets
-
-import plotly.graph_objs as go
 import numpy as np
-import pandas as pd
-import scipy
-from scipy import signal
 '''
 torch.autograd.set_detect_anomaly(True)
 arch_parameters = torch.randn((2, 3), requires_grad=True)
@@ -82,7 +77,7 @@ print([j for i in range(1) for j in range(i+2)])
 checkpoint = torch.load('./seed-21054-search.pth')
 print(checkpoint['state_dict'])
 '''
-
+'''
 f = open('./warm40-epochs200-freq15-wlr006-slr0025-alr0004-bs16-entropy-search.json', 'r')
 dicct = json.load(f)
 f.close()
@@ -96,7 +91,7 @@ print(dicct['jsons']['window_3806cad6e16850']['content']['data'][1]['y']) # vali
 
 x = dicct['jsons']['window_3806cad6e16850']['content']['data'][0]['x']
 y = dicct['jsons']['window_3806cad6e16850']['content']['data'][0]['y']
-
+'''
 '''
 fig = go.Figure()
 
@@ -141,13 +136,11 @@ fig.add_trace(go.Scatter(
 #fig.show()
 
 
-import matplotlib.pyplot as plt
-from scipy.signal import savgol_filter
-from matplotlib.pyplot import MultipleLocator
 
 
 
 
+'''
 yhat = savgol_filter(y, 21, 3) # window size 51, polynomial order 3
 
 #yhat = savitzky_golay(y, 51, 3) # window size 51, polynomial order 3
@@ -173,7 +166,7 @@ plt.xscale('linear')
 plt.yscale('linear')
 plt.autoscale()
 plt.show()
-
+'''
 # import os
 # import glob
 # import shutil
@@ -204,3 +197,95 @@ plt.show()
 # shutil.copytree('../Efficient_AutoDeeplab', 'D:/Efficient_AutoDeeplab/tree_scripts')
 #
 # ''' the use of shutil.copy and shutil.copytree '''
+
+
+from models.normal_models.Unet_ji import Unet_ji
+from models.normal_models.enet import ENet
+from models.normal_models.erfnet import ERFNet
+from models.normal_models.esfnet import ESFNet
+from models.normal_models.FCN_ji import FCN_ji
+from utils.flop_benchmark import get_model_infos
+'''
+model = Unet_ji(2)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('Unet:: FLOPS & PARAMS ')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+'''
+'''
+model = ENet(2)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('ENet:: FLOPS & PARAMS ')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+model = ERFNet(2)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('ERFNet:: FLOPS & PARAMS')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+model = ESFNet(2, interpolate=True)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('ESFNet_interpolate:: FLOPS & PARAMS')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+model = ESFNet(2, interpolate=False)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('ESFNet_not_interpolate:: FLOPS & PARAMS')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+'''
+'''
+model = FCN_ji(2)
+flop, param = get_model_infos(model, [1, 3, 512, 512])
+print('FCN:: FLOPS & PARAMS ')
+print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
+'''
+# check convergence epochs for the best architecture
+'''
+checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-1-linear-random-trial2-search/06-Jan-at-07-04-49/checkpoints/seed-6098-search-best.pth'
+arch_checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-1-linear-random-trial2-search/06-Jan-at-07-04-49/checkpoints/seed-6098-arch-best.pth'
+checkpoint = torch.load(checkpoint_path)
+arch_checkpoint = torch.load(arch_checkpoint_path)
+best_epoch = checkpoint['start_epochs'] - 1
+actual_path = arch_checkpoint['actual_path']
+
+print('best_epochs::', best_epoch)
+print('actual_path::', actual_path)
+
+'''  
+                              #start_epochs-1
+# window_380f3118a1c92c 001005       90
+# window_380f5c9177f3f6 001005linear 94
+# window_380dccfff296c8 001001       90
+# window_380dcd01f59fa8 00010001     95
+# window_380ff39b09453c warm-noentropy-nop 96 [0 1 0 0 1 0 1 0 0 0 1 1]     92 96
+# window_380c721b726022 warm-p-noentropy   93 [0 0 0 0 1 1 2 3 3 3 2 1]
+# window_3810383cc99800 00010005     96
+# window_3810f47496689a 0005001linear97
+# window_3810e671ea130e nude         99       actual_path:: [1 0 0 1 1 2 3 2 2 2 2 1] 99
+# window_3811b2f61a4908 0008004linear95
+# window_3811bb5b40fef8 0006003linear94
+# window_381280bbb84c80 0006003linear-trial1 99
+# window_381280c2da1580 0006003linear-trial2 95
+f = open('20-100-005-0025-0003-0006003-1-linear-random-trial2-search.json')
+json_dict = json.load(f)
+f.close()
+
+#print(json_dict['jsons'].keys())
+for key in json_dict['jsons'].keys():
+    if json_dict['jsons'][key]['title'] == 'entropy':
+        print(key)
+
+# constraint initial entropy 50.96009063720703
+# without constraint initial entropy 53.98834228515625
+
+print(json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['x'])
+print(json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['y'])
+print(50.96009063720703 - json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['y'][94])
+
+# visdom_log records 1-99 except the initial one, so when calculate \Delta S, need use best_epoch-1
+
+
+# 001001 15.95 2.004
+
+
+# 001005 19.54
+
+#% 0006003 trial0 7.87 94 optimal 37 converge random_seed = 1
+#% 0006003 trial1 10.07 99 optimal 97 converge
+#% 0006003 trial2 11.79 95 optimal 93 converge

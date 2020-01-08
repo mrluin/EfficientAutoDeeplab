@@ -129,6 +129,7 @@ class NewGumbelCell(MyModule):
                 self.included_edges.append(edge_str)
 
         print(self.included_edges)
+        
     def forward(self, s0, s1):
 
         s0_size = s0[0].size()[2]

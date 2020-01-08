@@ -139,7 +139,7 @@ class WHUBuildingDataProvider(DataProvider):
 
         # test in the whole end-to-end process, do not return filename
         # when performing prediction, return filename
-        test_dataset = WHUBuildingDataset(self.test_path, transform=False, rt_filename=False)
+        test_dataset = WHUBuildingDataset(self.test_path, transform=False, rt_filename=True)
         self.test_loader = data.DataLoader(
             test_dataset, batch_size=test_batch_size, shuffle=False,
             num_workers=nb_works, pin_memory=False,

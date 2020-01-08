@@ -107,7 +107,7 @@ class visdomer(object):
                 X=torch.ones(1) * epoch,
                 Y=torch.tensor([current_entropy]),
                 win=window,
-                update='append' if epoch != 1 else 'insert'
+                update= 'append' if epoch != 1 else 'insert'
             )
         elif update_element in ['warmup_loss', 'warmup_miou']:
             current_value = update_value[0]

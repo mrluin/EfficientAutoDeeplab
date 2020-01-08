@@ -433,8 +433,8 @@ class ArchSearchRunManager:
                     set_single_path = False
                     # loss
                     ce_loss = self.run_manager.criterion(logits, targets)
-                    print('here:==========================')
-                    print(ce_loss)
+                    #print('here:==========================')
+                    #print(ce_loss)
                     #cell_reg, network_reg, _ = self.net.calculate_entropy(single_path) # todo: pay attention, entropy is unnormalized, should use small lambda
                     #print('entropy_reg:', entropy_reg)
                     loss = self.run_manager.add_regularization_loss(epoch, ce_loss, None)
