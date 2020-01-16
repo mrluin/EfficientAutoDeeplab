@@ -28,12 +28,47 @@ class NewGumbelCell(MyModule):
             2: 16,
             3: 32,
         }
-        self.index2channels = {
-            0: 32,
-            1: 64,
-            2: 128,
-            3: 256,
-        }
+        if filter_multiplier == 16:
+            # small setting
+            self.index2channels = {
+                0: 16,
+                1: 32,
+                2: 64,
+                3: 128,
+            }
+        elif filter_multiplier == 32:
+            # medium setting
+            self.index2channels = {
+                0: 32,
+                1: 64,
+                2: 128,
+                3: 256,
+            }
+        elif filter_multiplier == 40:
+            self.index2channels = {
+                0: 40,
+                1: 80,
+                2: 160,
+                3: 320,
+            }
+        elif filter_multiplier == 64:
+            # large setting
+            self.index2channels = {
+                0: 64,
+                1: 128,
+                2: 256,
+                3: 512,
+            }
+        elif filter_multiplier == 50:
+            self.index2channels = {
+                0: 50,
+                1: 100,
+                2: 200,
+                3: 400,
+            }
+        else:
+            raise ValueError('filter_multiplier {:} do not support for index2channels in new_gumbel_model'.format(filter_multiplier))
+
         self.total_nodes = 2 + steps
         self.layer = layer
         self.filter_multiplier = filter_multiplier
@@ -210,13 +245,13 @@ class NewGumbelAutoDeeplab(MyNetwork):
         # change the order of the stem2
         self.stem2 = nn.Sequential(OrderedDict([
             ('relu', nn.ReLU(inplace=True)),
-            ('conv', nn.Conv2d(16, 32, 3, stride=2, padding=1, bias=False)),
-            ('bn', nn.BatchNorm2d(32)),
+            ('conv', nn.Conv2d(16, self.filter_multiplier, 3, stride=2, padding=1, bias=False)),
+            ('bn', nn.BatchNorm2d(self.filter_multiplier)),
         ]))
 
         self.cells = nn.ModuleList()
         prev_prev_c = 16
-        prev_c = 32
+        prev_c = self.filter_multiplier
         for layer in range(self.nb_layers):
             next_scale = int(self.actual_path[layer])
             cell_genotype = self.cell_genotypes[layer] # next_scale cell genotype

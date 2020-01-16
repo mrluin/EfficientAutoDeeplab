@@ -22,11 +22,17 @@ def obtain_retrain_args():
     parser.add_argument('--resume_file', type=str, default=None, help='path to retrain resume file')
     parser.add_argument('--checkpoint_file', type=str, default=None, help='start retrain phase according to search phase')
     parser.add_argument('--evaluation', default=False, action='store_true', help='control testing')
-
     parser.add_argument('--evaluation_ckpt', default=None, type=str, help='checkpoint used in evaluation phrase')
 
+
+    parser.add_argument('--epochs', type=int, default=100)
+
+    # to control different settings
+    parser.add_argument('--filter_multiplier', type=int, default=32)
+
+
     # train optimization
-    parser.add_argument('--init_lr', type=float, default=5e-4)  # 5e-4 for Adam
+    parser.add_argument('--init_lr', type=float, default=1e-3)  # 5e-4 for Adam
     parser.add_argument('--scheduler', type=str, default='poly', choices=['multistep', 'cosine', 'exponential', 'linear', 'poly'])
     parser.add_argument('--weight_optimizer_type', type=str, default='Adam', choices=['SGD', 'RMSprop', 'Adam'])
     parser.add_argument('--momentum', type=float, default=0.9)
@@ -49,7 +55,7 @@ def obtain_retrain_args():
     #parser.add_argument('--resume_from_search', default=False, action='store_true', help='if true, resume from configs and checkpoint from search phase')
 
     ''' run config '''
-    parser.add_argument('--epochs', type=int, default=100)
+
     parser.add_argument('--warmup_epochs', type=int, default=None)
 
 
@@ -74,11 +80,12 @@ def obtain_retrain_args():
     # not used
     parser.add_argument('--no_decay_keys', type=str, default=None, choices=[None, 'bn', 'bn#bias'])
     # loss function and its params
-    parser.add_argument('--criterion', type=str, default='Softmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
+    parser.add_argument('--criterion', type=str, default='WeightedSoftmax', choices=['Softmax', 'SmoothSoftmax', 'WeightedSoftmax'])
     parser.add_argument('--use_unbalanced_weights', default=False, action='store_true')
     parser.add_argument('--label_smoothing', type=float, default=0.)
     parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log'])
-    parser.add_argument('--reg_loss_lambda', type=float, default=1e-1) # reg param
+    parser.add_argument('--reg_loss_lambda1', type=float, default=1e-1) # reg param not used in retrain
+    parser.add_argument('--reg_loss_lambda2', type=float, default=1e-1) # reg param not used in retrain
     parser.add_argument('--reg_loss_alpha', type=float, default=0.2)  # reg param
     parser.add_argument('--reg_loss_beta', type=float, default=0.3)  # reg param
     # monitor and frequency
@@ -89,7 +96,7 @@ def obtain_retrain_args():
 
     ''' net configs '''
     parser.add_argument('--nb_layers', type=int, default=12)
-    parser.add_argument('--filter_multiplier', type=int, default=32)
+
     parser.add_argument('--block_multiplier', type=int, default=1)
     parser.add_argument('--steps', type=int, default=1)
     parser.add_argument('--model_init', type=str, default='he_fout', choices=['he_fin', 'he_fout'])

@@ -33,12 +33,32 @@ f3.close()
 x3 = json_dict3['jsons']['window_380ff39b062c38']['content']['data'][0]['x']
 y3 = json_dict3['jsons']['window_380ff39b062c38']['content']['data'][0]['y']
 
+'''
+# trial0
 f4 = open('./20-100-005-0025-0003-0006003-linear-search.json')
 # miou window window_3811bb5b3e3338
 json_dict4 = json.load(f4)
 f4.close()
 x4 = json_dict4['jsons']['window_3811bb5b3e3338']['content']['data'][0]['x']
 y4 = json_dict4['jsons']['window_3811bb5b3e3338']['content']['data'][0]['y']
+'''
+'''
+# trial01
+f5 = open('./20-100-005-0025-0003-0006003-random1-trial01-search.json')
+# miou window_381423305ca72c
+json_dict5 = json.load(f5)
+f5.close()
+x5 = json_dict5['jsons']['window_381423305ca72c']['content']['data'][0]['x']
+y5 = json_dict5['jsons']['window_381423305ca72c']['content']['data'][0]['y']
+'''
+
+# trial3
+f6 = open('20-100-005-0025-0003-0006003-1-linear-random-trial3-search.json')
+# miou window_3813525db9b2da
+json_dict6 = json.load(f6)
+f6.close()
+x6 = json_dict6['jsons']['window_3813525db9b2da']['content']['data'][0]['x']
+y6 = json_dict6['jsons']['window_3813525db9b2da']['content']['data'][0]['y']
 
 
 plt.title('searching miou')
@@ -48,7 +68,7 @@ plt.ylabel('miou')
 plt.plot(x1, y1, label='BdnasNet-nude', linewidth=1.5, linestyle='-', color=(255/255, 127/255, 0/255))
 plt.plot(x2, y2, label='BdnasNet-WP', linewidth=1.5, linestyle='-', color='green')
 plt.plot(x3, y3, label='BdnasNet-W', linewidth=1.5, linestyle='-', color='blue')
-plt.plot(x4, y4, label='BdnasNet', linewidth=1.5, linestyle='-', color='red')
+plt.plot(x6, y6, label='BdnasNet', linewidth=1.5, linestyle='-', color='red')
 
 plt.legend(loc='upper left')
 ax = plt.gca()

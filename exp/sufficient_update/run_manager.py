@@ -192,7 +192,10 @@ class RunConfig:
             criterion_params = optimizer_config['criterion_params']
             criterion = CrossEntropyLabelSmooth(optimizer_config.class_num, criterion_params.label_smooth).to('cuda:{}'.format(self.gpu_ids))
         elif optimizer_config['criterion'] == 'WeightedSoftmax':
-            classes_weights = calculate_weights_labels(self.path, 'WHUBuilding', self.train_loader, self.nb_classes)
+            #classes_weights = calculate_weights_labels(self.path, 'WHUBuilding', self.train_loader, self.nb_classes)
+            classes_weights = torch.ones(2)
+            classes_weights[0] = 1.53297775619
+            classes_weights[1] = 7.63194124408
             criterion = torch.nn.CrossEntropyLoss(weight=classes_weights).to('cuda:{}'.format(self.gpu_ids))
         else:
             raise ValueError('invalid criterion : {:}'.format(optimizer_config.criterion))
@@ -429,8 +432,8 @@ class RunManager:
             map = Image.fromarray(map)
             # filename /0.1.png [0] 0 [1] 1
             filename = filenames[index].split('/')[-1].split('.')
-            save_filename = filename[0] + '.' + filename[1]
-            save_path = os.path.join(self.prediction_path, 'patches', save_filename + '.png')
+            save_filename = filename[0]
+            save_path = os.path.join(self.prediction_path, save_filename + '.png')
             map.save(save_path)
 
     def validate(self, epoch=None, is_test=False, use_train_mode=False):
@@ -463,7 +466,7 @@ class RunManager:
 
         with torch.no_grad():
             if is_test:
-                for i, (data, targets, filenames) in enumerate(data_loader):
+                for i, ((datas, targets), filenames) in enumerate(data_loader):
                     if torch.cuda.is_available():
                         datas = datas.to(self.device, non_blocking=True)
                         targets = targets.to(self.device, non_blocking=True)
@@ -488,7 +491,7 @@ class RunManager:
                     end0 = time.time()
                 Wstr = '|*TEST*|' + time_string()
                 Tstr = '|Time  | [{batch_time.val:.2f} ({batch_time.avg:.2f})  Data {data_time.val:.2f} ({data_time.avg:.2f})]'.format(batch_time=batch_time, data_time=data_time)
-                Bstr = '|Base  | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.2f} ({miou.avg:.2f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
+                Bstr = '|Base  | [Loss {loss.val:.3f} ({loss.avg:.3f})  Accuracy {acc.val:.2f} ({acc.avg:.2f}) MIoU {miou.val:.5f} ({miou.avg:.5f}) F {fscore.val:.2f} ({fscore.avg:.2f})]'.format(loss=losses, acc=accs, miou=mious, fscore=fscores)
                 self.logger.log(Wstr + '\n' + Tstr + '\n' + Bstr, 'test')
             else:
                 for i, (datas, targets) in enumerate(data_loader):

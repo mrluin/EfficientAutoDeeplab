@@ -29,9 +29,9 @@ def obtain_train_search_args():
     parser.add_argument('--warmup_lr', type=float, default=0.05, help='warmup phrase init lr, from origin')
     parser.add_argument('--arch_lr', type=float, default=3e-3, help='Autodeeplab_arch_lr')
 
-    parser.add_argument('--reg_loss_type', type=str, default='add#linear', choices=['add#linear', 'mul#log', 'None', 'add#linear#linearschedule'])
-    parser.add_argument('--reg_loss_lambda1', type=float, default=0.1, help='lambda for cell_entropy') # reg param
-    parser.add_argument('--reg_loss_lambda2', type=float, default=0.4, help='lambda for arch_entropy')
+    parser.add_argument('--reg_loss_type', type=str, default='add#linear#linearschedule', choices=['add#linear', 'mul#log', 'None', 'add#linear#linearschedule'])
+    parser.add_argument('--reg_loss_lambda1', type=float, default=0.006, help='lambda for cell_entropy') # reg param
+    parser.add_argument('--reg_loss_lambda2', type=float, default=0.03, help='lambda for arch_entropy')
 
     parser.add_argument('--train_print_freq', type=int, default=30)
     parser.add_argument('--sample_arch_frequency', type=int, default=1, help='how often sample a new architecture to train operation weight')

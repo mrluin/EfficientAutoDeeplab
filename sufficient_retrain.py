@@ -14,6 +14,7 @@ from configs.retrain_config import obtain_retrain_args
 from utils.common import set_manual_seed, time_for_file, save_configs, create_exp_dir, configs_resume
 #from run_manager import RunConfig, RunManager
 from exp.sufficient_update.run_manager import *
+from utils.flop_benchmark import get_model_infos
 from utils.logger import prepare_logger, display_all_families_information
 from utils.visdom_utils import visdomer
 from models.gumbel_cells import autodeeplab, proxyless, counter, my_search_space
@@ -36,7 +37,7 @@ def main(args):
         EXP_time_last_retrain = config_dict['path'].split('/')[-1]
         Exp_name_last_retrain = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(Exp_name_last_retrain+'-'+EXP_time_last_retrain))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time)
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)  # from the last retrain.
         os.makedirs(args.path, exist_ok=True)
@@ -51,11 +52,12 @@ def main(args):
         EXP_time_best_checkpoint = config_dict['path'].split('/')[-1]
         EXP_name_best_checkpoint = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-evaluation-{:}'.format(EXP_name_best_checkpoint+'-'+EXP_time_best_checkpoint))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time)
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)
         os.makedirs(args.path, exist_ok=True)
         create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
+
     elif args.retrain_resume == False and args.evaluation == False:
         # resume from the searching phrase.
         config_file_path = os.path.join(args.checkpoint_file, 'search.config')
@@ -68,7 +70,7 @@ def main(args):
         EXP_time_search = config_dict['path'].split('/')[-1]
         EXP_name_search = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time + '-resume-{:}'.format(EXP_name_search + '-' + EXP_time_search))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time )
         torch.set_num_threads(args.workers)
         set_manual_seed(args.random_seed)  # from the last retrain phase or search phase.
         os.makedirs(args.path, exist_ok=True)
@@ -148,33 +150,79 @@ def main(args):
             'beta': args.reg_loss_beta}
     else:
         args.reg_loss_params = None
+
+    logger = prepare_logger(args)
+    if args.retrain_resume and args.evaluation == False:
+        logger.log('=> loading configs {:} from the last retrain phase.'.format(config_file_path), 'info')
+    elif args.retrain_resume == False and args.evaluation:
+        logger.log('=> loading configs {:} from the best retrain phrase.'.format(config_file_path), 'info')
+    elif args.retrain_resume == False and args.evaluation == False:
+        logger.log('=> loading configs {:} from search phrase.'.format(config_file_path), 'info')
+
     # save new config, and create logger.
     save_configs(args.__dict__, args.path, 'retrain')
-    logger = prepare_logger(args)
-    logger.log('=> loading configs {:} from the last retrain phase.'.format(config_file_path) if args.retrain_resume else
-               '=> starting retrain from the search phase config {:}.'.format(config_file_path), mode='info')
     # create run_config
     run_config = RunConfig(**args.__dict__)
 
     # only open_vis in retrain phrase
     if args.open_vis:
-        assert args.evaluation, 'invalid mode open_vis {:} and open_test {:}'.format(args.open_vis, args.open_test)
+        assert args.evaluation==False, 'invalid mode open_vis {:} and open_test {:}'.format(args.open_vis, args.evaluation)
         vis = visdomer(args.port, args.server, args.exp_name, args.compare_phase,
                        args.elements, init_params=None)
     else: vis = None
+
+
+    #print(args.evaluation)
 
     if args.evaluation:
         assert os.path.exists(args.evaluation_ckpt), 'cannot find the best checkpoint {:}'.format(args.evaluation_ckpt)
         checkpoint_path = os.path.join(args.evaluation_ckpt, 'checkpoints', 'seed-{:}-retrain-best.pth'.format(args.random_seed))
         checkpoint = torch.load(checkpoint_path)
         actual_path, cell_genotypes = checkpoint['actual_path'], checkpoint['cell_genotypes']
+        #print(actual_path)
+        #print(cell_genotypes)
+
+        '''
+        my_search_space = [
+                '3x3_SepFacConv1', '5x5_SepFacConv1',
+                '3x3_SepFacConv2', '5x5_SepFacConv2',
+                '3x3_SepFacConv4', '5x5_SepFacConv4',]
+        '''
+
+        # 0:4 1:4 2:5 3:5 4:4 5:2
+        actual_path = [0, 0 ,0 ,0 ,1 ,1 ,1 ,2 ,3 ,3 ,3 ,2]
+        cell_genotypes = [(0, [[('2<-1', 0), ('2<-0', 3)]]),
+                          (2, [[('2<-1', 4), ('2<-0', 1)]]),
+                          (7, [[('2<-1', 3), ('2<-0', 0)]]),
+                          (15, [[('2<-1',1), ('2<-0', 2)]]),
+                          (27, [[('2<-1', 4), ('2<-0', 3)]]),
+                          (38, [[('2<-1', 4), ('2<-0', 0)]]),
+                          (48, [[('2<-1', 2), ('2<-0', 5)]]),
+                          (60, [[('2<-1', 0), ('2<-0', 1)]]),
+                          (73, [[('2<-0', 3), ('2<-1', 3)]]),
+                          (84, [[('2<-1', 2), ('2<-0', 1)]]),
+                          (94, [[('2<-1', 4), ('2<-0', 2)]]),
+                          (102, [[('2<-1', 2), ('2<-0', 5)]])]
+
+        '''
+        actual_path = [0, 0, 0, 1, 1, 1, 2, 3, 3, 3, 2, 1]
+        cell_genotypes = [(0, [[('2<-1', 4), ('2<-0', 5)]]), (2, [[('2<-1', 3), ('2<-0', 1)]]), (7, [[('2<-1', 2), ('2<-0', 5)]]), (17, [[('2<-0',
+ 1), ('2<-1', 1)]]), (28, [[('2<-1', 4), ('2<-0', 1)]]), (38, [[('2<-1', 4), ('2<-0', 2)]]), (50, [[('2<-1', 5), ('2<-0', 1)]]), (63, [[('2<-1', 4), ('2<-0', 2)]]), (74, [[('2<-1', 1), ('2<-0', 0)]]), (84, [[('2<-1', 3), ('2<-0', 1)]]), (92, [[('2<-1', 4), ('2<-0', 5)]]), (99, [[('2<-1', 0), ('2<-0', 3)]])]
+ '''
+
         normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
                                               args.steps, args.nb_classes, actual_path, cell_genotypes,
                                               args.search_space, affine=True)
+
+        # save new config, and create logger.
+        #save_configs(args.__dict__, args.path, 'retrain')
+        # create run_config
+        #run_config = RunConfig(**args.__dict__)
+
         evaluation_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
         normal_network.load_state_dict(checkpoint['state_dict'])
         display_all_families_information(args, 'retrain', evaluation_run_manager, logger)
-        logger.log('=> loaded the best checkpoint from {:}, start evaluation'.format(checkpoint_path))
+        logger.log('=> loaded the best checkpoint from {:}, start evaluation'.format(checkpoint_path), 'info')
 
         evaluation_run_manager.validate(is_test=True, use_train_mode=False)
 
@@ -192,6 +240,15 @@ def main(args):
             normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
                                                   args.steps, args.nb_classes, actual_path, cell_genotypes,
                                                   args.search_space, affine=True)
+            flop, param = get_model_infos(normal_network, [1, 3, 512, 512])
+            logger.log('|#################### Network Info ####################|\n'
+                       'FLOPs:{:.2f} M,     Params:{:.2f} MB'.format(flop, param), mode='info')
+
+            # save new config, and create logger.
+            #save_configs(args.__dict__, args.path, 'retrain')
+            # create run_config
+            #run_config = RunConfig(**args.__dict__)
+
             retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
             normal_network.load_state_dict(checkpoint['state_dict'])
             display_all_families_information(args, 'retrain', retrain_run_manager, logger)
@@ -232,6 +289,17 @@ def main(args):
             normal_network = NewGumbelAutoDeeplab(args.nb_layers, args.filter_multiplier, args.block_multiplier,
                                                   args.steps, args.nb_classes, actual_path, cell_genotypes,
                                                   args.search_space, affine=True)
+
+            flop, param = get_model_infos(normal_network, [1, 3, 512, 512])
+            logger.log('|#################### Network Info ####################|\n'
+                       'FLOPs:{:.2f} M,     Params:{:.2f} MB'.format(flop, param), mode='info')
+
+            # save new config, and create logger.
+            #save_configs(args.__dict__, args.path, 'retrain')
+            # create run_config
+            #run_config = RunConfig(**args.__dict__)
+
+
             retrain_run_manager = RunManager(args.path, normal_network, logger, run_config, vis, out_log=True)
             #normal_network.load_state_dict(checkpoint['state_dict'])
             display_all_families_information(args, 'retrain', retrain_run_manager, logger)
@@ -244,9 +312,11 @@ def main(args):
 
 if __name__ == '__main__':
     args = obtain_retrain_args()
-    if args.retrain_resume:
+    if args.retrain_resume and args.evaluation == False:
         assert os.path.exists(args.resume_file), 'cannot find resume_file {:} from the last retrain phase'.format(args.resume_file)
-    else:
+    elif args.retrain_resume == False and args.evaluation:
+        assert os.path.exists(args.evaluation_ckpt), 'cannot find checkpoint_file {:} from search phase'.format(args.evalution_ckpt)
+    elif args.retrain_resume == False and args.evaluation == False:
         assert os.path.exists(args.checkpoint_file), 'cannot find checkpoint_file {:} from search phase'.format(args.checkpoint_file)
     main(args)
 

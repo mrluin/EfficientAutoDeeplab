@@ -237,17 +237,20 @@ print('FLOP = {:.2f} M, Params = {:.2f} MB'.format(flop, param))
 '''
 # check convergence epochs for the best architecture
 '''
-checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-1-linear-random-trial2-search/06-Jan-at-07-04-49/checkpoints/seed-6098-search-best.pth'
-arch_checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-1-linear-random-trial2-search/06-Jan-at-07-04-49/checkpoints/seed-6098-arch-best.pth'
+checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-random1-trial03-search/12-Jan-at-06-50-35-resume-warm20-epochs100-wlr005-slr0025-alr0003-freq1-noentropy-search-29-Dec-at-14-04-49/checkpoints/seed-1-search-best.pth'
+arch_checkpoint_path = '/home/linjingbo/Jingbo.TTB/Workspace/final_exp/20-100-005-0025-0003-0006003-random1-trial03-search/12-Jan-at-06-50-35-resume-warm20-epochs100-wlr005-slr0025-alr0003-freq1-noentropy-search-29-Dec-at-14-04-49/checkpoints/seed-1-arch-best.pth'
 checkpoint = torch.load(checkpoint_path)
 arch_checkpoint = torch.load(arch_checkpoint_path)
 best_epoch = checkpoint['start_epochs'] - 1
 actual_path = arch_checkpoint['actual_path']
+genotypes = arch_checkpoint['cell_genotypes']
 
 print('best_epochs::', best_epoch)
 print('actual_path::', actual_path)
+print('cell_genotypes::', genotypes)
 
-'''  
+
+
                               #start_epochs-1
 # window_380f3118a1c92c 001005       90
 # window_380f5c9177f3f6 001005linear 94
@@ -259,10 +262,18 @@ print('actual_path::', actual_path)
 # window_3810f47496689a 0005001linear97
 # window_3810e671ea130e nude         99       actual_path:: [1 0 0 1 1 2 3 2 2 2 2 1] 99
 # window_3811b2f61a4908 0008004linear95
-# window_3811bb5b40fef8 0006003linear94
-# window_381280bbb84c80 0006003linear-trial1 99
-# window_381280c2da1580 0006003linear-trial2 95
-f = open('20-100-005-0025-0003-0006003-1-linear-random-trial2-search.json')
+# window_3811bb5b40fef8 0006003linear-trial0  94 random_seed=1
+# window_3814233060c390 0006003linear-trial01 98 random_seed=1
+# window_381280bbb84c80 0006003linear-trial1  99
+# window_381280c2da1580 0006003linear-trial2  95
+# window_3813525dbbed8e 0006003linear-trial3  96
+# window_38135f7416aa48 0006003linear-trial4  85
+# window_3814dc58dd5cc2 0004002linear         87
+# window_3815121a372280 0002001linear         95
+# window_3815e6dd1829d0 0006003linear-trial02 94 random_seed=1
+# window_381735c419eb36 0006003linear-trial03 95 random_seed=1
+'''
+f = open('20-100-005-0025-0003-0006003-random1-trial03-search.json')
 json_dict = json.load(f)
 f.close()
 
@@ -274,18 +285,30 @@ for key in json_dict['jsons'].keys():
 # constraint initial entropy 50.96009063720703
 # without constraint initial entropy 53.98834228515625
 
-print(json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['x'])
-print(json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['y'])
-print(50.96009063720703 - json_dict['jsons']['window_381280c2da1580']['content']['data'][0]['y'][94])
+print(json_dict['jsons']['window_381735c419eb36']['content']['data'][0]['x'])
+print(json_dict['jsons']['window_381735c419eb36']['content']['data'][0]['y'])
+print(50.96009063720703 - json_dict['jsons']['window_381735c419eb36']['content']['data'][0]['y'][94])
+
 
 # visdom_log records 1-99 except the initial one, so when calculate \Delta S, need use best_epoch-1
 
 
 # 001001 15.95 2.004
 
-
 # 001005 19.54
 
-#% 0006003 trial0 7.87 94 optimal 37 converge random_seed = 1
-#% 0006003 trial1 10.07 99 optimal 97 converge
-#% 0006003 trial2 11.79 95 optimal 93 converge
+
+#% 00050025
+
+
+#% 0006003 trial0  7.87  94 optimal 37 converge  random_seed = 1 [0 0 0 0 1 1 2 3 3 3 2 2]    0.6614009
+#% 0006003 trial01 6.33  98 optimal 85 converge  random_seed = 1 [0 0 0 0 0 0 1 1 2 1 1 0] 65 0.6700109
+#% 0006003 trial02 9.60  94 optimal 38 converge  random_seed = 1 [0 0 0 0 1 2 2 3 3 3 2 2]    0.6678333
+#% 0006003 trial03 6.97  95 optimal 53 converge  random_seed = 1 [0 0 0 0 0 0 1 1 2 2 2 2]
+
+#% 0006003 trial1  10.07 99 optimal 97 converge                  [0 0 0 0 1 1 1 2 3 3 3 2]    0.6697142, used for the final architecture
+
+#% 0006003 trial2  11.79 95 optimal 93 converge                  [0 0 0 0 0 1 1 2 3 3 2 2]    0.659537
+#% 0006003 trial3  10.70 96 optimal 63 converge                  [0 0 0 0 1 1 1 1 1 1 1 1]    0.6650254  as random_seed=1, used in table3
+#% 0006003 trial4  5.12  85 optimal 41 converge                  [0 0 0 1 1 2 3 3 3 3 3 2]    0.6431438
+#% trial5 entropy is bad, discard

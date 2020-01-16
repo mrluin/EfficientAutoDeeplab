@@ -42,7 +42,7 @@ def main(args):
         resume_EXP_time = config_dict['path'].split('/')[-1]
         resume_exp_name = config_dict['path'].split('/')[-2]
         EXP_time = time_for_file()
-        args.path = os.path.join(args.path, args.exp_name, EXP_time+'-resume-{:}'.format(resume_exp_name+'-'+resume_EXP_time))
+        args.path = os.path.join(args.path, args.exp_name, EXP_time)
         os.makedirs(args.path, exist_ok=True)
         create_exp_dir(args.path, scripts_to_save='../Efficient_AutoDeeplab')
         #save_configs(args.__dict__, args.path, 'search')

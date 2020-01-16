@@ -479,7 +479,8 @@ def configs_resume(args, configs_dict, phase):
             if 'path' not in key and 'gpu_ids' not in key and 'resume_from_retrain' not in key and \
                     'resume_file' not in key and 'checkpoint_file' not in key and 'exp_name' not in key and \
                     'train_print_freq' not in key and 'open_test' not in key and 'evaluation_ckpt' not in key and \
-                    'open_vis' not in key:
+                    'open_vis' not in key and 'init_lr' not in key and 'evaluation' not in key and 'evaluation_ckpt' not in key and \
+                    'epochs' not in key:
                 args.__dict__[key] = configs_dict[key]
         return args
     elif phase == 'test':
